@@ -23,5 +23,7 @@ export const env = {
     googleRedirectUri: requireEnv('GOOGLE_REDIRECT_URI'),
     // Security
     encryptionKey: requireEnv('ENCRYPTION_KEY'),
+    // Frontend
+    frontendUrl: optionalEnv('FRONTEND_URL', 'http://localhost:5173'),
 };
 //# sourceMappingURL=env.js.map

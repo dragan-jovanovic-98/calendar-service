@@ -8,5 +8,6 @@ export declare const env: {
     readonly googleClientSecret: string;
     readonly googleRedirectUri: string;
     readonly encryptionKey: string;
+    readonly frontendUrl: string;
 };
 //# sourceMappingURL=env.d.ts.map
