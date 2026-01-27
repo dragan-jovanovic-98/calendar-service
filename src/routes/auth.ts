@@ -38,10 +38,8 @@ export async function authRoutes(server: FastifyInstance) {
     // Handle OAuth errors
     if (error) {
       console.error('Google OAuth error:', error);
-      return reply.status(400).send({
-        error: 'Google OAuth failed',
-        details: error,
-      });
+      const errorRedirect = `${env.frontendUrl}/settings?error=oauth_failed`;
+      return reply.redirect(errorRedirect);
     }
 
     if (!code || !clientId) {
@@ -84,20 +82,13 @@ export async function authRoutes(server: FastifyInstance) {
         console.error('Failed to auto-select calendar, using primary:', calErr);
       }
 
-      // Return success response
-      // In production, you might redirect to a dashboard or success page
-      return reply.send({
-        success: true,
-        message: 'Google Calendar connected successfully',
-        client_id: clientId,
-        calendar_id: selectedCalendarId,
-      });
+      // Redirect back to frontend settings page
+      const successRedirect = `${env.frontendUrl}/settings?connected=true`;
+      return reply.redirect(successRedirect);
     } catch (err) {
       console.error('Failed to exchange code for tokens:', err);
-      return reply.status(500).send({
-        error: 'Failed to complete OAuth flow',
-        details: err instanceof Error ? err.message : 'Unknown error',
-      });
+      const errorRedirect = `${env.frontendUrl}/settings?error=connection_failed`;
+      return reply.redirect(errorRedirect);
     }
   });
 

@@ -3,7 +3,7 @@
 ## Current Phase: V1 - MVP Development
 
 **Last Updated**: January 27, 2025
-**Status**: Planning Complete, Ready to Build
+**Status**: V1 Deployed to Production
 
 ---
 
@@ -19,7 +19,7 @@
 | Natural language date parsing | Done |
 | Google Calendar availability check | Done |
 | Webhook endpoint for Retell | Done |
-| Deploy to Digital Ocean | Not Started |
+| Deploy to Digital Ocean | Done |
 
 ### V2: Booking & Resilience
 | Task | Status |
@@ -44,24 +44,30 @@
 
 ## Where We Left Off
 
-**Session**: Webhook endpoint complete
+**Session**: V1 Deployed
 **Completed**:
 - Created CLAUDE.md, project-spec.md, architecture.md, project-status.md
 - Initialized Node.js project with TypeScript + Fastify
 - Added Google Calendar fields to mortgage_clients table
-- Implemented Google OAuth flow with token encryption
+- Implemented Google OAuth flow with token encryption + auto-select primary calendar
 - Implemented natural language date parsing (chrono-node)
-- Implemented Google Calendar availability check:
-  - `src/lib/google-calendar.ts` - freeBusy API queries
-  - `src/routes/webhook.ts` - Retell webhook endpoint
-  - Handles lead timezone (from campaign) vs client timezone
-  - Returns `needsTimeSpecified` when only day is given
-  - Provides alternative slots when busy
+- Implemented Google Calendar availability check with spoken response for Retell
+- Deployed to Digital Ocean (138.68.232.89)
+- Set up Nginx + SSL (Let's Encrypt)
+- Live at https://calendar.courtside-ai.com
 
 **Next Steps**:
-1. Deploy to Digital Ocean
-2. (V2) Book appointment functionality
-3. (V2) Twilio SMS fallback
+1. Configure Retell webhook URL and test end-to-end
+2. Integrate frontend (broker-view) with backend API:
+   - Connect Google OAuth flow
+   - Calendar selection UI
+   - Dashboard for brokers
+3. (V2) Book appointment functionality
+4. (V2) Twilio SMS fallback
+
+## Related Projects
+- **Frontend**: https://github.com/dragan-jovanovic-98/broker-view (Lovable)
+- **Backend**: https://github.com/dragan-jovanovic-98/calendar-service (this project)
 
 ---
 
@@ -69,8 +75,8 @@
 - None currently - ready to build
 
 ## Pre-Deployment Checklist
-- [ ] Update Google OAuth redirect URI to production URL (https://calendar.courtside-ai.com/auth/google/callback)
-- [ ] Update BASE_URL in .env to production domain
-- [ ] Regenerate ENCRYPTION_KEY for production
-- [ ] Rotate Google OAuth secret (exposed during development)
+- [x] Update Google OAuth redirect URI to production URL (https://calendar.courtside-ai.com/auth/google/callback)
+- [x] Update BASE_URL in .env to production domain
+- [x] Regenerate ENCRYPTION_KEY for production
+- [ ] Rotate Google OAuth secret (skipped for now)
 - [ ] Configure Retell webhook URL to point to production endpoint (https://calendar.courtside-ai.com/webhook/retell)

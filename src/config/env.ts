@@ -29,4 +29,7 @@ export const env = {
 
   // Security
   encryptionKey: requireEnv('ENCRYPTION_KEY'),
+
+  // Frontend
+  frontendUrl: optionalEnv('FRONTEND_URL', 'http://localhost:5173'),
 } as const;

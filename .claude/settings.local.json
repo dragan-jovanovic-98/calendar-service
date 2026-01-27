@@ -7,7 +7,8 @@
       "Bash(timeout 5 npm run dev)",
       "mcp__supabase__list_tables",
       "mcp__supabase__get_project_url",
-      "Bash(dig:*)"
+      "Bash(dig:*)",
+      "Bash(curl:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
