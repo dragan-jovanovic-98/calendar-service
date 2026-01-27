@@ -1,0 +1,39 @@
+import type { OAuth2Client } from 'google-auth-library';
+export interface CalendarInfo {
+    id: string;
+    name: string;
+    primary: boolean;
+    accessRole: string;
+}
+/**
+ * List all calendars the user has access to
+ */
+export declare function listCalendars(auth: OAuth2Client): Promise<CalendarInfo[]>;
+export interface TimeSlot {
+    start: Date;
+    end: Date;
+    startRFC3339: string;
+    endRFC3339: string;
+}
+export interface AvailabilityResult {
+    available: boolean;
+    requestedSlot?: TimeSlot;
+    busyPeriods: Array<{
+        start: string;
+        end: string;
+    }>;
+    alternatives: TimeSlot[];
+}
+/**
+ * Check availability for a specific time slot
+ */
+export declare function checkSlotAvailability(auth: OAuth2Client, calendarId: string, startTime: Date, durationMinutes: number, timezone: string): Promise<AvailabilityResult>;
+/**
+ * Find available slots within a time range (for "after 4pm" or "morning" requests)
+ */
+export declare function findAvailableSlotsInRange(auth: OAuth2Client, calendarId: string, rangeStart: Date, rangeEnd: Date, durationMinutes: number, timezone: string, maxSlots?: number): Promise<TimeSlot[]>;
+/**
+ * Format a time slot for human-readable output in the lead's timezone
+ */
+export declare function formatSlotForLead(slot: TimeSlot, timezone: string): string;
+//# sourceMappingURL=google-calendar.d.ts.map
