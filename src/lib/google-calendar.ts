@@ -282,3 +282,60 @@ export function formatSlotForLead(slot: TimeSlot, timezone: string): string {
     hour12: true,
   }).format(slot.start);
 }
+
+export interface CalendarEventResult {
+  eventId: string;
+  htmlLink: string;
+}
+
+/**
+ * Create a Google Calendar event
+ */
+export async function createCalendarEvent(
+  auth: OAuth2Client,
+  calendarId: string,
+  title: string,
+  description: string,
+  startTime: Date,
+  durationMinutes: number,
+  timezone: string,
+  attendeeEmail?: string
+): Promise<CalendarEventResult> {
+  const calendar = google.calendar({ version: 'v3', auth });
+
+  const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+
+  const event: {
+    summary: string;
+    description: string;
+    start: { dateTime: string; timeZone: string };
+    end: { dateTime: string; timeZone: string };
+    attendees?: Array<{ email: string }>;
+  } = {
+    summary: title,
+    description,
+    start: {
+      dateTime: toRFC3339(startTime, timezone),
+      timeZone: timezone,
+    },
+    end: {
+      dateTime: toRFC3339(endTime, timezone),
+      timeZone: timezone,
+    },
+  };
+
+  if (attendeeEmail) {
+    event.attendees = [{ email: attendeeEmail }];
+  }
+
+  const response = await calendar.events.insert({
+    calendarId,
+    requestBody: event,
+    sendUpdates: attendeeEmail ? 'all' : 'none',
+  });
+
+  return {
+    eventId: response.data.id || '',
+    htmlLink: response.data.htmlLink || '',
+  };
+}

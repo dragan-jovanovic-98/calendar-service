@@ -32,6 +32,18 @@ export declare function getClientById(clientId: string): Promise<MortgageClient 
 export declare function updateClientOAuthTokens(clientId: string, tokens: GoogleOAuthTokens): Promise<boolean>;
 export declare function updateClientCalendarId(clientId: string, calendarId: string): Promise<boolean>;
 export declare function getLeadTimezone(campaignId: string | null | undefined, clientTimezone: string): Promise<string>;
+export interface LeadWithPhone {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+    phone: string | null;
+}
+export declare function getLeadById(leadId: string): Promise<LeadWithPhone | null>;
+export declare function createAppointment(clientId: string, leadId: string, startTime: Date, endTime: Date, timezone: string, calendarEventId: string, externalCallId?: string): Promise<{
+    id: string;
+}>;
+export declare function updateLeadStatus(leadId: string, status: string): Promise<void>;
 export declare function isTimeBlocked(dateTime: Date, client: MortgageClient): {
     blocked: boolean;
     reason?: string;

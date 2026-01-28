@@ -124,6 +124,114 @@ export async function getLeadTimezone(
   return data.timezone;
 }
 
+// Lead data with primary phone
+export interface LeadWithPhone {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+// Fetch lead by ID with primary phone number
+export async function getLeadById(leadId: string): Promise<LeadWithPhone | null> {
+  const { data, error } = await supabase
+    .from('mortgage_leads')
+    .select(`
+      id,
+      first_name,
+      last_name,
+      email,
+      mortgage_lead_phones!inner(phone_e164, is_primary)
+    `)
+    .eq('id', leadId)
+    .single();
+
+  if (error) {
+    // Try without phone if no phone exists
+    const { data: leadOnly, error: leadError } = await supabase
+      .from('mortgage_leads')
+      .select('id, first_name, last_name, email')
+      .eq('id', leadId)
+      .single();
+
+    if (leadError) {
+      console.error('Error fetching lead:', leadError);
+      return null;
+    }
+
+    return {
+      id: leadOnly.id,
+      first_name: leadOnly.first_name,
+      last_name: leadOnly.last_name,
+      email: leadOnly.email,
+      phone: null,
+    };
+  }
+
+  // Find primary phone or use first available
+  const phones = data.mortgage_lead_phones as Array<{ phone_e164: string; is_primary: boolean }>;
+  const primaryPhone = phones.find(p => p.is_primary)?.phone_e164 || phones[0]?.phone_e164 || null;
+
+  return {
+    id: data.id,
+    first_name: data.first_name,
+    last_name: data.last_name,
+    email: data.email,
+    phone: primaryPhone,
+  };
+}
+
+// Create an appointment record
+export async function createAppointment(
+  clientId: string,
+  leadId: string,
+  startTime: Date,
+  endTime: Date,
+  timezone: string,
+  calendarEventId: string,
+  externalCallId?: string
+): Promise<{ id: string }> {
+  const { data, error } = await supabase
+    .from('mortgage_appointments')
+    .insert({
+      client_id: clientId,
+      lead_id: leadId,
+      start_time: startTime.toISOString(),
+      end_time: endTime.toISOString(),
+      timezone,
+      external_calendar_id: calendarEventId,
+      external_call_id: externalCallId || '',
+      status: 'scheduled',
+      source: 'retell_voice',
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('Error creating appointment:', error);
+    throw new Error(`Failed to create appointment: ${error.message}`);
+  }
+
+  return { id: data.id };
+}
+
+// Update lead status
+export async function updateLeadStatus(
+  leadId: string,
+  status: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('mortgage_leads')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', leadId);
+
+  if (error) {
+    console.error('Error updating lead status:', error);
+    throw new Error(`Failed to update lead status: ${error.message}`);
+  }
+}
+
 // Check if a date/time is blocked by client settings
 export function isTimeBlocked(
   dateTime: Date,

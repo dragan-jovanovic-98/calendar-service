@@ -65,6 +65,83 @@ export async function getLeadTimezone(campaignId, clientTimezone) {
     }
     return data.timezone;
 }
+// Fetch lead by ID with primary phone number
+export async function getLeadById(leadId) {
+    const { data, error } = await supabase
+        .from('mortgage_leads')
+        .select(`
+      id,
+      first_name,
+      last_name,
+      email,
+      mortgage_lead_phones!inner(phone_e164, is_primary)
+    `)
+        .eq('id', leadId)
+        .single();
+    if (error) {
+        // Try without phone if no phone exists
+        const { data: leadOnly, error: leadError } = await supabase
+            .from('mortgage_leads')
+            .select('id, first_name, last_name, email')
+            .eq('id', leadId)
+            .single();
+        if (leadError) {
+            console.error('Error fetching lead:', leadError);
+            return null;
+        }
+        return {
+            id: leadOnly.id,
+            first_name: leadOnly.first_name,
+            last_name: leadOnly.last_name,
+            email: leadOnly.email,
+            phone: null,
+        };
+    }
+    // Find primary phone or use first available
+    const phones = data.mortgage_lead_phones;
+    const primaryPhone = phones.find(p => p.is_primary)?.phone_e164 || phones[0]?.phone_e164 || null;
+    return {
+        id: data.id,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        email: data.email,
+        phone: primaryPhone,
+    };
+}
+// Create an appointment record
+export async function createAppointment(clientId, leadId, startTime, endTime, timezone, calendarEventId, externalCallId) {
+    const { data, error } = await supabase
+        .from('mortgage_appointments')
+        .insert({
+        client_id: clientId,
+        lead_id: leadId,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        timezone,
+        external_calendar_id: calendarEventId,
+        external_call_id: externalCallId || '',
+        status: 'scheduled',
+        source: 'retell_voice',
+    })
+        .select('id')
+        .single();
+    if (error) {
+        console.error('Error creating appointment:', error);
+        throw new Error(`Failed to create appointment: ${error.message}`);
+    }
+    return { id: data.id };
+}
+// Update lead status
+export async function updateLeadStatus(leadId, status) {
+    const { error } = await supabase
+        .from('mortgage_leads')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', leadId);
+    if (error) {
+        console.error('Error updating lead status:', error);
+        throw new Error(`Failed to update lead status: ${error.message}`);
+    }
+}
 // Check if a date/time is blocked by client settings
 export function isTimeBlocked(dateTime, client) {
     const timezone = client.timezone || 'America/Toronto';

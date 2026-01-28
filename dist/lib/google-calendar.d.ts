@@ -44,4 +44,12 @@ export declare function findAvailableSlotsInRange(auth: OAuth2Client, calendarId
  * Format a time slot for human-readable output in the lead's timezone
  */
 export declare function formatSlotForLead(slot: TimeSlot, timezone: string): string;
+export interface CalendarEventResult {
+    eventId: string;
+    htmlLink: string;
+}
+/**
+ * Create a Google Calendar event
+ */
+export declare function createCalendarEvent(auth: OAuth2Client, calendarId: string, title: string, description: string, startTime: Date, durationMinutes: number, timezone: string, attendeeEmail?: string): Promise<CalendarEventResult>;
 //# sourceMappingURL=google-calendar.d.ts.map

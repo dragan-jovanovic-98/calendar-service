@@ -1,7 +1,7 @@
-import { getClientById, getLeadTimezone, isTimeBlocked } from '../lib/supabase.js';
+import { getClientById, getLeadTimezone, isTimeBlocked, getLeadById, createAppointment, updateLeadStatus, } from '../lib/supabase.js';
 import { getAuthenticatedClient } from '../lib/google-oauth.js';
 import { parseDateTime } from '../lib/date-parser.js';
-import { checkSlotAvailability, findAvailableSlotsInRange, formatSlotForLead, } from '../lib/google-calendar.js';
+import { checkSlotAvailability, findAvailableSlotsInRange, formatSlotForLead, createCalendarEvent, } from '../lib/google-calendar.js';
 // Format a list for speech (e.g., "10am, 2pm, and 4pm")
 function formatListForSpeech(items) {
     if (items.length === 0)
@@ -19,9 +19,14 @@ function extractTimeForSpeech(formatted) {
 }
 export async function webhookRoutes(server) {
     server.post('/webhook/retell', async (request, reply) => {
-        const { args, call } = request.body;
-        const { client_id, campaign_id } = call.metadata;
+        const { name, args, call } = request.body;
+        const { client_id, lead_id, campaign_id } = call.metadata;
         const requestedTimeString = args?.requested_time_string;
+        // Route to appropriate handler based on function name
+        if (name === 'book_appointment') {
+            return handleBookAppointment(request, reply, client_id, lead_id, campaign_id, requestedTimeString);
+        }
+        // Default: check_availability handler (existing logic)
         // Validate client_id
         if (!client_id) {
             return reply.status(400).send({
@@ -257,5 +262,159 @@ export async function webhookRoutes(server) {
             });
         }
     });
+}
+// Handler for book_appointment function
+async function handleBookAppointment(request, reply, clientId, leadId, campaignId, requestedTimeString) {
+    // Validate required metadata
+    if (!clientId) {
+        return reply.status(400).send({
+            response: "I'm sorry, I'm having trouble booking right now.",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: 'client_id is required in call metadata',
+        });
+    }
+    if (!leadId) {
+        return reply.status(400).send({
+            response: "I'm sorry, I'm having trouble booking right now.",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: 'lead_id is required in call metadata',
+        });
+    }
+    if (!requestedTimeString) {
+        return reply.status(400).send({
+            response: "What time would you like to book?",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: 'requested_time_string is required',
+        });
+    }
+    // Fetch client data
+    const client = await getClientById(clientId);
+    if (!client) {
+        return reply.status(404).send({
+            response: "I'm sorry, I'm having trouble booking right now.",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: 'Client not found',
+        });
+    }
+    // Check if client has connected Google Calendar
+    if (!client.google_oauth_tokens) {
+        return reply.status(400).send({
+            response: "I'm sorry, the calendar isn't set up yet. Can I take your number and have someone call you back?",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: 'Client has not connected Google Calendar',
+        });
+    }
+    // Fetch lead data
+    const lead = await getLeadById(leadId);
+    if (!lead) {
+        return reply.status(404).send({
+            response: "I'm sorry, I'm having trouble booking right now.",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: 'Lead not found',
+        });
+    }
+    // Get lead timezone (from campaign, fallback to client)
+    const leadTimezone = await getLeadTimezone(campaignId, client.timezone);
+    const calendarId = client.google_calendar_id || 'primary';
+    const meetingLength = client.meeting_length || 30;
+    const businessHours = client.business_hours;
+    // Parse the requested time
+    const parseResult = parseDateTime(requestedTimeString, leadTimezone);
+    if (!parseResult.success || !parseResult.slot) {
+        return reply.status(400).send({
+            response: "I didn't quite catch that time. Could you say it again?",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: parseResult.error || 'Could not parse requested time',
+        });
+    }
+    // For ranges or day-only requests, we need a specific time
+    if (parseResult.isRange || parseResult.needsTimeSpecified) {
+        return reply.status(400).send({
+            response: "I need a specific time to book. What time works for you?",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: 'A specific time is required for booking',
+        });
+    }
+    const requestedSlot = parseResult.slot.start;
+    // Check if time is blocked by business hours
+    const blockCheck = isTimeBlocked(requestedSlot, client);
+    if (blockCheck.blocked) {
+        return {
+            response: `I'm sorry, that time isn't available. ${blockCheck.reason === 'outside business hours' ? 'It\'s outside of business hours.' : 'That date is blocked.'}`,
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: `Time blocked: ${blockCheck.reason}`,
+        };
+    }
+    try {
+        const auth = await getAuthenticatedClient(clientId, client.google_oauth_tokens);
+        // Verify the slot is still available (prevent double-booking)
+        const availabilityCheck = await checkSlotAvailability(auth, calendarId, requestedSlot, meetingLength, client.timezone, businessHours);
+        if (!availabilityCheck.available) {
+            const formattedTime = formatSlotForLead(availabilityCheck.requestedSlot, leadTimezone);
+            return {
+                response: `I'm sorry, ${extractTimeForSpeech(formattedTime)} was just booked. Would you like a different time?`,
+                booked: false,
+                appointmentTime: formattedTime,
+                calendarEventId: null,
+                error: 'Requested time is no longer available',
+            };
+        }
+        // Build lead name
+        const leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Lead';
+        // Build event description
+        let description = `Booked via Retell AI voice call.\n\nLead: ${leadName}`;
+        if (lead.phone) {
+            description += `\nPhone: ${lead.phone}`;
+        }
+        if (lead.email) {
+            description += `\nEmail: ${lead.email}`;
+        }
+        // Create Google Calendar event
+        const eventResult = await createCalendarEvent(auth, calendarId, `Meeting with ${leadName}`, description, requestedSlot, meetingLength, client.timezone, lead.email || undefined // Only add as attendee if they have email
+        );
+        // Calculate end time
+        const endTime = new Date(requestedSlot.getTime() + meetingLength * 60 * 1000);
+        // Store appointment in database
+        await createAppointment(clientId, leadId, requestedSlot, endTime, client.timezone, eventResult.eventId, request.body.call.metadata.client_id // Using client_id as fallback since external_call_id isn't in metadata
+        );
+        // Update lead status
+        await updateLeadStatus(leadId, 'appointment_booked');
+        // Format the time for response
+        const formattedTime = formatSlotForLead(availabilityCheck.requestedSlot, leadTimezone);
+        return {
+            response: `You're all set for ${formattedTime}.`,
+            booked: true,
+            appointmentTime: formattedTime,
+            calendarEventId: eventResult.eventId,
+        };
+    }
+    catch (err) {
+        console.error('Error booking appointment:', err);
+        return reply.status(500).send({
+            response: "I'm sorry, I couldn't complete the booking. Can we try again?",
+            booked: false,
+            appointmentTime: null,
+            calendarEventId: null,
+            error: 'Failed to create calendar event',
+        });
+    }
 }
 //# sourceMappingURL=webhook.js.map

@@ -234,10 +234,133 @@ curl -X POST https://calendar.courtside-ai.com/webhook/retell \
 
 ---
 
-## Future: Appointment Booking (V2)
+## 7. Appointment Booking
 
-*Documentation to be added for:*
-- `book_appointment` function
-- Calendar event creation
+Once availability is confirmed, use `book_appointment` to create the calendar event and record the appointment.
+
+### Agent Configuration for Booking
+
+1. **Add the Custom Function:**
+
+   | Setting | Value |
+   |---------|-------|
+   | Function Name | `book_appointment` |
+   | Webhook URL | `https://calendar.courtside-ai.com/webhook/retell` |
+   | Method | POST |
+
+2. **Function Parameters:**
+
+   | Name | Type | Required | Description |
+   |------|------|----------|-------------|
+   | `requested_time_string` | string | Yes | The confirmed time to book (e.g., "Tuesday at 2pm") |
+
+3. **Required Metadata:**
+   - `client_id` - UUID of the broker/client (required)
+   - `lead_id` - UUID of the lead (required for booking)
+   - `campaign_id` - UUID of the campaign (optional, for timezone)
+
+4. **Function Description (for the LLM):**
+   ```
+   Book an appointment on the calendar. Call this ONLY after confirming
+   availability with check_availability AND getting the lead's confirmation
+   that they want that time. Pass the exact time they confirmed (e.g.,
+   "Tuesday at 2pm"). The lead_id must be in the call metadata.
+   ```
+
+### Booking Flow
+
+1. Agent: "Do you have Tuesday at 2pm?"
+2. System: `check_availability` → "2:00 PM is available."
+3. Agent: "Great, should I book that for you?"
+4. Lead: "Yes, please."
+5. System: `book_appointment` → "You're all set for Tuesday, Feb 3, 2:00 PM."
+6. Agent: Confirms the booking
+
+### What Happens When Booking
+
+1. **Validates** the time is still available (prevents double-booking)
+2. **Creates Google Calendar event** with:
+   - Title: "Meeting with {lead name}"
+   - Lead's phone and email in description
+   - Calendar invite sent to lead (if they have email)
+3. **Records appointment** in `mortgage_appointments` table
+4. **Updates lead status** to `appointment_booked`
+
+### Booking Request Format
+```json
+{
+  "name": "book_appointment",
+  "args": {
+    "requested_time_string": "Tuesday at 2pm"
+  },
+  "call": {
+    "metadata": {
+      "client_id": "9887eccf-8f8b-4d4c-a3ea-55b581f89f5f",
+      "lead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "campaign_id": "bc89be53-2196-496e-8eae-8527da4571da"
+    }
+  }
+}
+```
+
+### Booking Response Format
+
+**Success:**
+```json
+{
+  "response": "You're all set for Tuesday, Feb 3, 2:00 PM.",
+  "booked": true,
+  "appointmentTime": "Tuesday, Feb 3, 2:00 PM",
+  "calendarEventId": "abc123xyz"
+}
+```
+
+**Failure (time no longer available):**
+```json
+{
+  "response": "I'm sorry, 2:00 PM was just booked. Would you like a different time?",
+  "booked": false,
+  "appointmentTime": "Tuesday, Feb 3, 2:00 PM",
+  "calendarEventId": null,
+  "error": "Requested time is no longer available"
+}
+```
+
+**Failure (outside business hours):**
+```json
+{
+  "response": "I'm sorry, that time isn't available. It's outside of business hours.",
+  "booked": false,
+  "appointmentTime": null,
+  "calendarEventId": null,
+  "error": "Time blocked: outside business hours"
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `response` | string | Natural language for agent to speak |
+| `booked` | boolean | Whether the booking was successful |
+| `appointmentTime` | string or null | Formatted appointment time |
+| `calendarEventId` | string or null | Google Calendar event ID (for reference) |
+| `error` | string | Error message (only on failure) |
+
+### Troubleshooting Booking Issues
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| "lead_id is required" | Missing lead_id in metadata | Ensure lead_id is passed when creating the call |
+| "Time blocked" | Outside business hours or excluded date | Check client's business_hours settings |
+| "Requested time is no longer available" | Someone else booked it | Suggest alternative times |
+| "Could not parse requested time" | Invalid time format | Have lead repeat the time clearly |
+
+---
+
+## Future Enhancements
+
+*Planned for future versions:*
 - Confirmation SMS via Twilio
-- Lead status updates
+- Appointment rescheduling (`reschedule_appointment`)
+- Appointment cancellation (`cancel_appointment`)

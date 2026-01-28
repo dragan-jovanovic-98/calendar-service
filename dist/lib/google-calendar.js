@@ -182,4 +182,35 @@ export function formatSlotForLead(slot, timezone) {
         hour12: true,
     }).format(slot.start);
 }
+/**
+ * Create a Google Calendar event
+ */
+export async function createCalendarEvent(auth, calendarId, title, description, startTime, durationMinutes, timezone, attendeeEmail) {
+    const calendar = google.calendar({ version: 'v3', auth });
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+    const event = {
+        summary: title,
+        description,
+        start: {
+            dateTime: toRFC3339(startTime, timezone),
+            timeZone: timezone,
+        },
+        end: {
+            dateTime: toRFC3339(endTime, timezone),
+            timeZone: timezone,
+        },
+    };
+    if (attendeeEmail) {
+        event.attendees = [{ email: attendeeEmail }];
+    }
+    const response = await calendar.events.insert({
+        calendarId,
+        requestBody: event,
+        sendUpdates: attendeeEmail ? 'all' : 'none',
+    });
+    return {
+        eventId: response.data.id || '',
+        htmlLink: response.data.htmlLink || '',
+    };
+}
 //# sourceMappingURL=google-calendar.js.map
