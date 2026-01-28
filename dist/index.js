@@ -4,7 +4,6 @@ import 'dotenv/config';
 import { env } from './config/env.js';
 import { authRoutes } from './routes/auth.js';
 import { webhookRoutes } from './routes/webhook.js';
-import { settingsRoutes } from './routes/settings.js';
 import { parseDateTime } from './lib/date-parser.js';
 const server = Fastify({
     logger: true,
@@ -16,7 +15,6 @@ await server.register(cors, {
 // Register routes
 await server.register(authRoutes);
 await server.register(webhookRoutes);
-await server.register(settingsRoutes);
 // Health check
 server.get('/health', async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };

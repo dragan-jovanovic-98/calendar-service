@@ -8,7 +8,13 @@
       "mcp__supabase__list_tables",
       "mcp__supabase__get_project_url",
       "Bash(dig:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "mcp__supabase__execute_sql",
+      "Bash(npm run build:*)",
+      "mcp__supabase__apply_migration",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
