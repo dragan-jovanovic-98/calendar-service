@@ -12,7 +12,10 @@ const server = Fastify({
   logger: true,
 });
 
-await server.register(cors);
+await server.register(cors, {
+  origin: true,
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+});
 
 // Register routes
 await server.register(authRoutes);
