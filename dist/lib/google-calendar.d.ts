@@ -35,11 +35,11 @@ export interface AvailabilityResult {
 /**
  * Check availability for a specific time slot
  */
-export declare function checkSlotAvailability(auth: OAuth2Client, calendarId: string, startTime: Date, durationMinutes: number, timezone: string, businessHours?: BusinessHours): Promise<AvailabilityResult>;
+export declare function checkSlotAvailability(auth: OAuth2Client, calendarId: string, startTime: Date, durationMinutes: number, timezone: string, businessHours?: BusinessHours, bufferMinutes?: number): Promise<AvailabilityResult>;
 /**
  * Find available slots within a time range (for "after 4pm" or "morning" requests)
  */
-export declare function findAvailableSlotsInRange(auth: OAuth2Client, calendarId: string, rangeStart: Date, rangeEnd: Date, durationMinutes: number, timezone: string, maxSlots?: number, businessHours?: BusinessHours): Promise<TimeSlot[]>;
+export declare function findAvailableSlotsInRange(auth: OAuth2Client, calendarId: string, rangeStart: Date, rangeEnd: Date, durationMinutes: number, timezone: string, maxSlots?: number, businessHours?: BusinessHours, bufferMinutes?: number): Promise<TimeSlot[]>;
 /**
  * Format a time slot for human-readable output in the lead's timezone
  */

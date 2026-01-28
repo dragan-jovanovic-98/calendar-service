@@ -59,7 +59,8 @@ export async function checkSlotAvailability(
   startTime: Date,
   durationMinutes: number,
   timezone: string,
-  businessHours?: BusinessHours
+  businessHours?: BusinessHours,
+  bufferMinutes: number = 0
 ): Promise<AvailabilityResult> {
   const calendar = google.calendar({ version: 'v3', auth });
 
@@ -92,12 +93,12 @@ export async function checkSlotAvailability(
     endRFC3339: toRFC3339(endTime, timezone),
   };
 
-  const isAvailable = !isSlotBusy(startTime, endTime, busyPeriods);
+  const isAvailable = !isSlotBusy(startTime, endTime, busyPeriods, bufferMinutes);
 
   // Find alternative slots if not available
   const alternatives = isAvailable
     ? []
-    : findAlternativeSlots(startTime, durationMinutes, busyPeriods, timezone, 3, businessHours);
+    : findAlternativeSlots(startTime, durationMinutes, busyPeriods, timezone, 3, businessHours, bufferMinutes);
 
   return {
     available: isAvailable,
@@ -121,7 +122,8 @@ export async function findAvailableSlotsInRange(
   durationMinutes: number,
   timezone: string,
   maxSlots: number = 3,
-  businessHours?: BusinessHours
+  businessHours?: BusinessHours,
+  bufferMinutes: number = 0
 ): Promise<TimeSlot[]> {
   const calendar = google.calendar({ version: 'v3', auth });
 
@@ -141,22 +143,26 @@ export async function findAvailableSlotsInRange(
 
   const busyPeriods = response.data.calendars?.[calendarId]?.busy || [];
 
-  return findAlternativeSlots(rangeStart, durationMinutes, busyPeriods, timezone, maxSlots, businessHours);
+  return findAlternativeSlots(rangeStart, durationMinutes, busyPeriods, timezone, maxSlots, businessHours, bufferMinutes);
 }
 
 /**
- * Check if a slot overlaps with any busy period
+ * Check if a slot overlaps with any busy period (including buffer time)
  */
 function isSlotBusy(
   slotStart: Date,
   slotEnd: Date,
-  busyPeriods: Array<{ start?: string | null; end?: string | null }>
+  busyPeriods: Array<{ start?: string | null; end?: string | null }>,
+  bufferMinutes: number = 0
 ): boolean {
+  const bufferMs = bufferMinutes * 60 * 1000;
+
   for (const busy of busyPeriods) {
     if (!busy.start || !busy.end) continue;
 
-    const busyStart = new Date(busy.start);
-    const busyEnd = new Date(busy.end);
+    // Expand busy period by buffer on both ends
+    const busyStart = new Date(new Date(busy.start).getTime() - bufferMs);
+    const busyEnd = new Date(new Date(busy.end).getTime() + bufferMs);
 
     // Check for overlap
     if (slotStart < busyEnd && slotEnd > busyStart) {
@@ -228,7 +234,8 @@ function findAlternativeSlots(
   busyPeriods: Array<{ start?: string | null; end?: string | null }>,
   timezone: string,
   maxSlots: number,
-  businessHours?: BusinessHours
+  businessHours?: BusinessHours,
+  bufferMinutes: number = 0
 ): TimeSlot[] {
   const alternatives: TimeSlot[] = [];
   const slotDuration = durationMinutes * 60 * 1000;
@@ -251,7 +258,7 @@ function findAlternativeSlots(
     if (isWithinBusinessHours(checkTime, timezone, businessHours)) {
       const slotEnd = new Date(checkTime.getTime() + slotDuration);
 
-      if (!isSlotBusy(checkTime, slotEnd, busyPeriods)) {
+      if (!isSlotBusy(checkTime, slotEnd, busyPeriods, bufferMinutes)) {
         alternatives.push({
           start: new Date(checkTime),
           end: slotEnd,

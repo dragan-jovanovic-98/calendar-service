@@ -35,6 +35,7 @@ export interface MortgageClient {
   broker_last_name: string | null;
   business_phone: string | null;
   primary_email: string | null;
+  buffer_minutes: number;
 }
 
 export interface GoogleOAuthTokens {
@@ -61,7 +62,8 @@ export async function getClientById(clientId: string): Promise<MortgageClient | 
       broker_first_name,
       broker_last_name,
       business_phone,
-      primary_email
+      primary_email,
+      buffer_minutes
     `)
     .eq('id', clientId)
     .single();

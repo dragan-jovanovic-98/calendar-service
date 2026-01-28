@@ -17,7 +17,7 @@ export async function listCalendars(auth) {
 /**
  * Check availability for a specific time slot
  */
-export async function checkSlotAvailability(auth, calendarId, startTime, durationMinutes, timezone, businessHours) {
+export async function checkSlotAvailability(auth, calendarId, startTime, durationMinutes, timezone, businessHours, bufferMinutes = 0) {
     const calendar = google.calendar({ version: 'v3', auth });
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
     // Query a wider window to find alternatives (check 3 days)
@@ -42,11 +42,11 @@ export async function checkSlotAvailability(auth, calendarId, startTime, duratio
         startRFC3339: toRFC3339(startTime, timezone),
         endRFC3339: toRFC3339(endTime, timezone),
     };
-    const isAvailable = !isSlotBusy(startTime, endTime, busyPeriods);
+    const isAvailable = !isSlotBusy(startTime, endTime, busyPeriods, bufferMinutes);
     // Find alternative slots if not available
     const alternatives = isAvailable
         ? []
-        : findAlternativeSlots(startTime, durationMinutes, busyPeriods, timezone, 3, businessHours);
+        : findAlternativeSlots(startTime, durationMinutes, busyPeriods, timezone, 3, businessHours, bufferMinutes);
     return {
         available: isAvailable,
         requestedSlot,
@@ -60,7 +60,7 @@ export async function checkSlotAvailability(auth, calendarId, startTime, duratio
 /**
  * Find available slots within a time range (for "after 4pm" or "morning" requests)
  */
-export async function findAvailableSlotsInRange(auth, calendarId, rangeStart, rangeEnd, durationMinutes, timezone, maxSlots = 3, businessHours) {
+export async function findAvailableSlotsInRange(auth, calendarId, rangeStart, rangeEnd, durationMinutes, timezone, maxSlots = 3, businessHours, bufferMinutes = 0) {
     const calendar = google.calendar({ version: 'v3', auth });
     // Extend query to include a few days for alternatives
     const queryEnd = new Date(rangeStart);
@@ -75,17 +75,19 @@ export async function findAvailableSlotsInRange(auth, calendarId, rangeStart, ra
         },
     });
     const busyPeriods = response.data.calendars?.[calendarId]?.busy || [];
-    return findAlternativeSlots(rangeStart, durationMinutes, busyPeriods, timezone, maxSlots, businessHours);
+    return findAlternativeSlots(rangeStart, durationMinutes, busyPeriods, timezone, maxSlots, businessHours, bufferMinutes);
 }
 /**
- * Check if a slot overlaps with any busy period
+ * Check if a slot overlaps with any busy period (including buffer time)
  */
-function isSlotBusy(slotStart, slotEnd, busyPeriods) {
+function isSlotBusy(slotStart, slotEnd, busyPeriods, bufferMinutes = 0) {
+    const bufferMs = bufferMinutes * 60 * 1000;
     for (const busy of busyPeriods) {
         if (!busy.start || !busy.end)
             continue;
-        const busyStart = new Date(busy.start);
-        const busyEnd = new Date(busy.end);
+        // Expand busy period by buffer on both ends
+        const busyStart = new Date(new Date(busy.start).getTime() - bufferMs);
+        const busyEnd = new Date(new Date(busy.end).getTime() + bufferMs);
         // Check for overlap
         if (slotStart < busyEnd && slotEnd > busyStart) {
             return true;
@@ -138,7 +140,7 @@ function isWithinBusinessHours(date, timezone, businessHours) {
 /**
  * Find alternative available slots
  */
-function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone, maxSlots, businessHours) {
+function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone, maxSlots, businessHours, bufferMinutes = 0) {
     const alternatives = [];
     const slotDuration = durationMinutes * 60 * 1000;
     const thirtyMinutes = 30 * 60 * 1000;
@@ -154,7 +156,7 @@ function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone,
         // Check if this time is within business hours
         if (isWithinBusinessHours(checkTime, timezone, businessHours)) {
             const slotEnd = new Date(checkTime.getTime() + slotDuration);
-            if (!isSlotBusy(checkTime, slotEnd, busyPeriods)) {
+            if (!isSlotBusy(checkTime, slotEnd, busyPeriods, bufferMinutes)) {
                 alternatives.push({
                     start: new Date(checkTime),
                     end: slotEnd,

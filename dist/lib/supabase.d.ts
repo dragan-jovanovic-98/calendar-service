@@ -26,6 +26,7 @@ export interface MortgageClient {
     broker_last_name: string | null;
     business_phone: string | null;
     primary_email: string | null;
+    buffer_minutes: number;
 }
 export interface GoogleOAuthTokens {
     access_token: string;

@@ -20,7 +20,8 @@ export async function getClientById(clientId) {
       broker_first_name,
       broker_last_name,
       business_phone,
-      primary_email
+      primary_email,
+      buffer_minutes
     `)
         .eq('id', clientId)
         .single();

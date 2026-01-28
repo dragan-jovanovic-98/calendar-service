@@ -128,6 +128,7 @@ export async function webhookRoutes(server: FastifyInstance) {
     const calendarId = client.google_calendar_id || 'primary';
     const meetingLength = client.meeting_length || 30;
     const businessHours = client.business_hours as BusinessHours | undefined;
+    const bufferMinutes = client.buffer_minutes || 0;
 
     // Helper to filter slots by business hours
     const filterSlotsByBusinessHours = (slots: TimeSlot[]): TimeSlot[] => {
@@ -162,7 +163,8 @@ export async function webhookRoutes(server: FastifyInstance) {
           meetingLength,
           client.timezone,
           10, // Fetch more to account for filtering
-          businessHours
+          businessHours,
+          bufferMinutes
         );
 
         // Filter by business hours
@@ -219,7 +221,8 @@ export async function webhookRoutes(server: FastifyInstance) {
           meetingLength,
           client.timezone,
           10,
-          businessHours
+          businessHours,
+          bufferMinutes
         );
 
         // Filter by business hours (double-check for vacations/excluded dates)
@@ -266,7 +269,8 @@ export async function webhookRoutes(server: FastifyInstance) {
           meetingLength,
           client.timezone,
           10,
-          businessHours
+          businessHours,
+          bufferMinutes
         );
 
         // Filter by business hours (double-check for vacations/excluded dates)
@@ -313,7 +317,8 @@ export async function webhookRoutes(server: FastifyInstance) {
             meetingLength,
             client.timezone,
             10,
-            businessHours
+            businessHours,
+            bufferMinutes
           );
 
           // Filter for vacations/excluded dates
@@ -340,7 +345,8 @@ export async function webhookRoutes(server: FastifyInstance) {
           parseResult.slot!.start,
           meetingLength,
           client.timezone,
-          businessHours
+          businessHours,
+          bufferMinutes
         );
 
         const formattedRequestedTime = formatSlotForLead(result.requestedSlot!, leadTimezone);
@@ -460,6 +466,7 @@ async function handleBookAppointment(
   const calendarId = client.google_calendar_id || 'primary';
   const meetingLength = client.meeting_length || 30;
   const businessHours = client.business_hours as BusinessHours | undefined;
+  const bufferMinutes = client.buffer_minutes || 0;
 
   // Parse the requested time
   const parseResult = parseDateTime(requestedTimeString, leadTimezone);
@@ -509,7 +516,8 @@ async function handleBookAppointment(
       requestedSlot,
       meetingLength,
       client.timezone,
-      businessHours
+      businessHours,
+      bufferMinutes
     );
 
     if (!availabilityCheck.available) {
