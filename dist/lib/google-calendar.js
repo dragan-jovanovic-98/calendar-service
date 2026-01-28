@@ -17,7 +17,7 @@ export async function listCalendars(auth) {
 /**
  * Check availability for a specific time slot
  */
-export async function checkSlotAvailability(auth, calendarId, startTime, durationMinutes, timezone) {
+export async function checkSlotAvailability(auth, calendarId, startTime, durationMinutes, timezone, businessHours) {
     const calendar = google.calendar({ version: 'v3', auth });
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
     // Query a wider window to find alternatives (check 3 days)
@@ -46,7 +46,7 @@ export async function checkSlotAvailability(auth, calendarId, startTime, duratio
     // Find alternative slots if not available
     const alternatives = isAvailable
         ? []
-        : findAlternativeSlots(startTime, durationMinutes, busyPeriods, timezone, 3);
+        : findAlternativeSlots(startTime, durationMinutes, busyPeriods, timezone, 3, businessHours);
     return {
         available: isAvailable,
         requestedSlot,
@@ -60,7 +60,7 @@ export async function checkSlotAvailability(auth, calendarId, startTime, duratio
 /**
  * Find available slots within a time range (for "after 4pm" or "morning" requests)
  */
-export async function findAvailableSlotsInRange(auth, calendarId, rangeStart, rangeEnd, durationMinutes, timezone, maxSlots = 3) {
+export async function findAvailableSlotsInRange(auth, calendarId, rangeStart, rangeEnd, durationMinutes, timezone, maxSlots = 3, businessHours) {
     const calendar = google.calendar({ version: 'v3', auth });
     // Extend query to include a few days for alternatives
     const queryEnd = new Date(rangeStart);
@@ -75,7 +75,7 @@ export async function findAvailableSlotsInRange(auth, calendarId, rangeStart, ra
         },
     });
     const busyPeriods = response.data.calendars?.[calendarId]?.busy || [];
-    return findAlternativeSlots(rangeStart, durationMinutes, busyPeriods, timezone, maxSlots);
+    return findAlternativeSlots(rangeStart, durationMinutes, busyPeriods, timezone, maxSlots, businessHours);
 }
 /**
  * Check if a slot overlaps with any busy period
@@ -94,9 +94,68 @@ function isSlotBusy(slotStart, slotEnd, busyPeriods) {
     return false;
 }
 /**
+ * Get the time components in a specific timezone
+ */
+function getTimeInTimezone(date, timezone) {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false,
+        weekday: 'short',
+    });
+    const parts = formatter.formatToParts(date);
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+    const weekdayStr = parts.find(p => p.type === 'weekday')?.value || 'Mon';
+    const weekdayMap = {
+        'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6
+    };
+    const dayOfWeek = weekdayMap[weekdayStr] ?? 1;
+    return { hour, minute, dayOfWeek };
+}
+/**
+ * Check if a time falls within business hours
+ */
+function isWithinBusinessHours(date, timezone, businessHours) {
+    // Default business hours: Mon-Fri 9am-5pm
+    const defaultRules = [
+        { days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00' }
+    ];
+    const rules = businessHours?.rules || defaultRules;
+    const { hour, minute, dayOfWeek } = getTimeInTimezone(date, timezone);
+    const currentTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+    // Find a rule that applies to this day
+    for (const rule of rules) {
+        if (rule.days.includes(dayOfWeek)) {
+            if (currentTime >= rule.start && currentTime < rule.end) {
+                return { within: true };
+            }
+            // If before start time on a valid day, return next start
+            if (currentTime < rule.start) {
+                const [startHour, startMinute] = rule.start.split(':').map(Number);
+                return { within: false, nextStart: { hour: startHour, minute: startMinute } };
+            }
+        }
+    }
+    // Not within any rule, find the next valid day
+    // Look ahead up to 7 days to find next business day
+    for (let daysAhead = 1; daysAhead <= 7; daysAhead++) {
+        const nextDay = (dayOfWeek + daysAhead) % 7;
+        for (const rule of rules) {
+            if (rule.days.includes(nextDay)) {
+                const [startHour, startMinute] = rule.start.split(':').map(Number);
+                return { within: false, nextStart: { hour: startHour, minute: startMinute }, nextDay: true };
+            }
+        }
+    }
+    // Fallback to default 9am next day
+    return { within: false, nextStart: { hour: 9, minute: 0 }, nextDay: true };
+}
+/**
  * Find alternative available slots
  */
-function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone, maxSlots) {
+function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone, maxSlots, businessHours) {
     const alternatives = [];
     const slotDuration = durationMinutes * 60 * 1000;
     // Start checking from the requested time, in 30-minute increments
@@ -105,16 +164,15 @@ function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone,
     const maxCheckTime = new Date(startFrom);
     maxCheckTime.setDate(maxCheckTime.getDate() + 3);
     while (alternatives.length < maxSlots && checkTime < maxCheckTime) {
-        const hour = checkTime.getHours();
-        // Skip non-business hours (before 9am or after 8pm)
-        if (hour < 9) {
-            checkTime.setHours(9, 0, 0, 0);
-            continue;
-        }
-        if (hour >= 20) {
-            // Move to next day at 9am
-            checkTime.setDate(checkTime.getDate() + 1);
-            checkTime.setHours(9, 0, 0, 0);
+        const businessCheck = isWithinBusinessHours(checkTime, timezone, businessHours);
+        if (!businessCheck.within) {
+            // Skip to next valid business hours
+            if (businessCheck.nextDay) {
+                checkTime.setDate(checkTime.getDate() + 1);
+            }
+            if (businessCheck.nextStart) {
+                checkTime.setHours(businessCheck.nextStart.hour, businessCheck.nextStart.minute, 0, 0);
+            }
             continue;
         }
         const slotEnd = new Date(checkTime.getTime() + slotDuration);

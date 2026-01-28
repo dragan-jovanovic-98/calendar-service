@@ -2,6 +2,16 @@ import { google } from 'googleapis';
 import type { OAuth2Client } from 'google-auth-library';
 import { toRFC3339, addMinutesToDate } from './date-parser.js';
 
+export interface BusinessHoursRule {
+  days: number[]; // 0=Sunday, 1=Monday, etc.
+  start: string;  // "09:00"
+  end: string;    // "17:00"
+}
+
+export interface BusinessHours {
+  rules: BusinessHoursRule[];
+}
+
 export interface CalendarInfo {
   id: string;
   name: string;
@@ -48,7 +58,8 @@ export async function checkSlotAvailability(
   calendarId: string,
   startTime: Date,
   durationMinutes: number,
-  timezone: string
+  timezone: string,
+  businessHours?: BusinessHours
 ): Promise<AvailabilityResult> {
   const calendar = google.calendar({ version: 'v3', auth });
 
@@ -86,7 +97,7 @@ export async function checkSlotAvailability(
   // Find alternative slots if not available
   const alternatives = isAvailable
     ? []
-    : findAlternativeSlots(startTime, durationMinutes, busyPeriods, timezone, 3);
+    : findAlternativeSlots(startTime, durationMinutes, busyPeriods, timezone, 3, businessHours);
 
   return {
     available: isAvailable,
@@ -109,7 +120,8 @@ export async function findAvailableSlotsInRange(
   rangeEnd: Date,
   durationMinutes: number,
   timezone: string,
-  maxSlots: number = 3
+  maxSlots: number = 3,
+  businessHours?: BusinessHours
 ): Promise<TimeSlot[]> {
   const calendar = google.calendar({ version: 'v3', auth });
 
@@ -129,7 +141,7 @@ export async function findAvailableSlotsInRange(
 
   const busyPeriods = response.data.calendars?.[calendarId]?.busy || [];
 
-  return findAlternativeSlots(rangeStart, durationMinutes, busyPeriods, timezone, maxSlots);
+  return findAlternativeSlots(rangeStart, durationMinutes, busyPeriods, timezone, maxSlots, businessHours);
 }
 
 /**
@@ -155,6 +167,77 @@ function isSlotBusy(
 }
 
 /**
+ * Get the time components in a specific timezone
+ */
+function getTimeInTimezone(date: Date, timezone: string): { hour: number; minute: number; dayOfWeek: number } {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+    weekday: 'short',
+  });
+  const parts = formatter.formatToParts(date);
+  const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+  const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+  const weekdayStr = parts.find(p => p.type === 'weekday')?.value || 'Mon';
+
+  const weekdayMap: Record<string, number> = {
+    'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6
+  };
+  const dayOfWeek = weekdayMap[weekdayStr] ?? 1;
+
+  return { hour, minute, dayOfWeek };
+}
+
+/**
+ * Check if a time falls within business hours
+ */
+function isWithinBusinessHours(
+  date: Date,
+  timezone: string,
+  businessHours?: BusinessHours
+): { within: boolean; nextStart?: { hour: number; minute: number }; nextDay?: boolean } {
+  // Default business hours: Mon-Fri 9am-5pm
+  const defaultRules: BusinessHoursRule[] = [
+    { days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00' }
+  ];
+
+  const rules = businessHours?.rules || defaultRules;
+  const { hour, minute, dayOfWeek } = getTimeInTimezone(date, timezone);
+  const currentTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+
+  // Find a rule that applies to this day
+  for (const rule of rules) {
+    if (rule.days.includes(dayOfWeek)) {
+      if (currentTime >= rule.start && currentTime < rule.end) {
+        return { within: true };
+      }
+      // If before start time on a valid day, return next start
+      if (currentTime < rule.start) {
+        const [startHour, startMinute] = rule.start.split(':').map(Number);
+        return { within: false, nextStart: { hour: startHour!, minute: startMinute! } };
+      }
+    }
+  }
+
+  // Not within any rule, find the next valid day
+  // Look ahead up to 7 days to find next business day
+  for (let daysAhead = 1; daysAhead <= 7; daysAhead++) {
+    const nextDay = (dayOfWeek + daysAhead) % 7;
+    for (const rule of rules) {
+      if (rule.days.includes(nextDay)) {
+        const [startHour, startMinute] = rule.start.split(':').map(Number);
+        return { within: false, nextStart: { hour: startHour!, minute: startMinute! }, nextDay: true };
+      }
+    }
+  }
+
+  // Fallback to default 9am next day
+  return { within: false, nextStart: { hour: 9, minute: 0 }, nextDay: true };
+}
+
+/**
  * Find alternative available slots
  */
 function findAlternativeSlots(
@@ -162,7 +245,8 @@ function findAlternativeSlots(
   durationMinutes: number,
   busyPeriods: Array<{ start?: string | null; end?: string | null }>,
   timezone: string,
-  maxSlots: number
+  maxSlots: number,
+  businessHours?: BusinessHours
 ): TimeSlot[] {
   const alternatives: TimeSlot[] = [];
   const slotDuration = durationMinutes * 60 * 1000;
@@ -175,17 +259,16 @@ function findAlternativeSlots(
   maxCheckTime.setDate(maxCheckTime.getDate() + 3);
 
   while (alternatives.length < maxSlots && checkTime < maxCheckTime) {
-    const hour = checkTime.getHours();
+    const businessCheck = isWithinBusinessHours(checkTime, timezone, businessHours);
 
-    // Skip non-business hours (before 9am or after 8pm)
-    if (hour < 9) {
-      checkTime.setHours(9, 0, 0, 0);
-      continue;
-    }
-    if (hour >= 20) {
-      // Move to next day at 9am
-      checkTime.setDate(checkTime.getDate() + 1);
-      checkTime.setHours(9, 0, 0, 0);
+    if (!businessCheck.within) {
+      // Skip to next valid business hours
+      if (businessCheck.nextDay) {
+        checkTime.setDate(checkTime.getDate() + 1);
+      }
+      if (businessCheck.nextStart) {
+        checkTime.setHours(businessCheck.nextStart.hour, businessCheck.nextStart.minute, 0, 0);
+      }
       continue;
     }
 

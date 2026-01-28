@@ -69,6 +69,7 @@ export async function webhookRoutes(server) {
         const leadTimezone = await getLeadTimezone(campaign_id, client.timezone);
         const calendarId = client.google_calendar_id || 'primary';
         const meetingLength = client.meeting_length || 30;
+        const businessHours = client.business_hours;
         // Helper to filter slots by business hours
         const filterSlotsByBusinessHours = (slots) => {
             return slots.filter(slot => !isTimeBlocked(slot.start, client).blocked);
@@ -80,8 +81,8 @@ export async function webhookRoutes(server) {
                 const now = new Date();
                 const endOfDay = new Date(now);
                 endOfDay.setHours(20, 0, 0, 0);
-                const slots = await findAvailableSlotsInRange(auth, calendarId, now, endOfDay, meetingLength, client.timezone, 10 // Fetch more to account for filtering
-                );
+                const slots = await findAvailableSlotsInRange(auth, calendarId, now, endOfDay, meetingLength, client.timezone, 10, // Fetch more to account for filtering
+                businessHours);
                 // Filter by business hours
                 const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
                 const formattedSlots = filteredSlots.map(s => formatSlotForLead(s, leadTimezone));
@@ -123,8 +124,8 @@ export async function webhookRoutes(server) {
         if (parseResult.needsTimeSpecified) {
             try {
                 const auth = await getAuthenticatedClient(client_id, client.google_oauth_tokens);
-                const slots = await findAvailableSlotsInRange(auth, calendarId, parseResult.rangeStart, parseResult.rangeEnd, meetingLength, client.timezone, 10);
-                // Filter by business hours
+                const slots = await findAvailableSlotsInRange(auth, calendarId, parseResult.rangeStart, parseResult.rangeEnd, meetingLength, client.timezone, 10, businessHours);
+                // Filter by business hours (double-check for vacations/excluded dates)
                 const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
                 const formattedSlots = filteredSlots.map(s => formatSlotForLead(s, leadTimezone));
                 const timesForSpeech = formattedSlots.map(extractTimeForSpeech);
@@ -157,8 +158,8 @@ export async function webhookRoutes(server) {
             const auth = await getAuthenticatedClient(client_id, client.google_oauth_tokens);
             if (parseResult.isRange) {
                 // For ranges like "after 4pm", find first available slot
-                const slots = await findAvailableSlotsInRange(auth, calendarId, parseResult.rangeStart, parseResult.rangeEnd, meetingLength, client.timezone, 10);
-                // Filter by business hours
+                const slots = await findAvailableSlotsInRange(auth, calendarId, parseResult.rangeStart, parseResult.rangeEnd, meetingLength, client.timezone, 10, businessHours);
+                // Filter by business hours (double-check for vacations/excluded dates)
                 const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
                 if (filteredSlots.length > 0) {
                     const firstSlot = filteredSlots[0];
@@ -192,7 +193,8 @@ export async function webhookRoutes(server) {
                     rangeStart.setHours(9, 0, 0, 0);
                     const rangeEnd = new Date(requestedSlot);
                     rangeEnd.setHours(20, 0, 0, 0);
-                    const slots = await findAvailableSlotsInRange(auth, calendarId, rangeStart, rangeEnd, meetingLength, client.timezone, 10);
+                    const slots = await findAvailableSlotsInRange(auth, calendarId, rangeStart, rangeEnd, meetingLength, client.timezone, 10, businessHours);
+                    // Filter for vacations/excluded dates
                     const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
                     const formattedAlternatives = filteredSlots.map(s => formatSlotForLead(s, leadTimezone));
                     const alternativeTimesForSpeech = formattedAlternatives.map(extractTimeForSpeech);
@@ -207,7 +209,7 @@ export async function webhookRoutes(server) {
                     };
                 }
                 // Time is within business hours, check Google Calendar
-                const result = await checkSlotAvailability(auth, calendarId, parseResult.slot.start, meetingLength, client.timezone);
+                const result = await checkSlotAvailability(auth, calendarId, parseResult.slot.start, meetingLength, client.timezone, businessHours);
                 const formattedRequestedTime = formatSlotForLead(result.requestedSlot, leadTimezone);
                 const requestedTimeForSpeech = extractTimeForSpeech(formattedRequestedTime);
                 // Filter alternatives by business hours

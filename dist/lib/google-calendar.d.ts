@@ -1,4 +1,12 @@
 import type { OAuth2Client } from 'google-auth-library';
+export interface BusinessHoursRule {
+    days: number[];
+    start: string;
+    end: string;
+}
+export interface BusinessHours {
+    rules: BusinessHoursRule[];
+}
 export interface CalendarInfo {
     id: string;
     name: string;
@@ -27,11 +35,11 @@ export interface AvailabilityResult {
 /**
  * Check availability for a specific time slot
  */
-export declare function checkSlotAvailability(auth: OAuth2Client, calendarId: string, startTime: Date, durationMinutes: number, timezone: string): Promise<AvailabilityResult>;
+export declare function checkSlotAvailability(auth: OAuth2Client, calendarId: string, startTime: Date, durationMinutes: number, timezone: string, businessHours?: BusinessHours): Promise<AvailabilityResult>;
 /**
  * Find available slots within a time range (for "after 4pm" or "morning" requests)
  */
-export declare function findAvailableSlotsInRange(auth: OAuth2Client, calendarId: string, rangeStart: Date, rangeEnd: Date, durationMinutes: number, timezone: string, maxSlots?: number): Promise<TimeSlot[]>;
+export declare function findAvailableSlotsInRange(auth: OAuth2Client, calendarId: string, rangeStart: Date, rangeEnd: Date, durationMinutes: number, timezone: string, maxSlots?: number, businessHours?: BusinessHours): Promise<TimeSlot[]>;
 /**
  * Format a time slot for human-readable output in the lead's timezone
  */

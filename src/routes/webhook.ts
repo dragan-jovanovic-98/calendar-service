@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { getClientById, getLeadTimezone, isTimeBlocked } from '../lib/supabase.js';
 import { getAuthenticatedClient } from '../lib/google-oauth.js';
 import { parseDateTime } from '../lib/date-parser.js';
-import type { TimeSlot } from '../lib/google-calendar.js';
+import type { TimeSlot, BusinessHours } from '../lib/google-calendar.js';
 import {
   checkSlotAvailability,
   findAvailableSlotsInRange,
@@ -104,6 +104,7 @@ export async function webhookRoutes(server: FastifyInstance) {
     const leadTimezone = await getLeadTimezone(campaign_id, client.timezone);
     const calendarId = client.google_calendar_id || 'primary';
     const meetingLength = client.meeting_length || 30;
+    const businessHours = client.business_hours as BusinessHours | undefined;
 
     // Helper to filter slots by business hours
     const filterSlotsByBusinessHours = (slots: TimeSlot[]): TimeSlot[] => {
@@ -125,7 +126,8 @@ export async function webhookRoutes(server: FastifyInstance) {
           endOfDay,
           meetingLength,
           client.timezone,
-          10 // Fetch more to account for filtering
+          10, // Fetch more to account for filtering
+          businessHours
         );
 
         // Filter by business hours
@@ -181,10 +183,11 @@ export async function webhookRoutes(server: FastifyInstance) {
           parseResult.rangeEnd!,
           meetingLength,
           client.timezone,
-          10
+          10,
+          businessHours
         );
 
-        // Filter by business hours
+        // Filter by business hours (double-check for vacations/excluded dates)
         const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
 
         const formattedSlots = filteredSlots.map(s => formatSlotForLead(s, leadTimezone));
@@ -227,10 +230,11 @@ export async function webhookRoutes(server: FastifyInstance) {
           parseResult.rangeEnd!,
           meetingLength,
           client.timezone,
-          10
+          10,
+          businessHours
         );
 
-        // Filter by business hours
+        // Filter by business hours (double-check for vacations/excluded dates)
         const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
 
         if (filteredSlots.length > 0) {
@@ -273,9 +277,11 @@ export async function webhookRoutes(server: FastifyInstance) {
             rangeEnd,
             meetingLength,
             client.timezone,
-            10
+            10,
+            businessHours
           );
 
+          // Filter for vacations/excluded dates
           const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
           const formattedAlternatives = filteredSlots.map(s => formatSlotForLead(s, leadTimezone));
           const alternativeTimesForSpeech = formattedAlternatives.map(extractTimeForSpeech);
@@ -298,7 +304,8 @@ export async function webhookRoutes(server: FastifyInstance) {
           calendarId,
           parseResult.slot!.start,
           meetingLength,
-          client.timezone
+          client.timezone,
+          businessHours
         );
 
         const formattedRequestedTime = formatSlotForLead(result.requestedSlot!, leadTimezone);
