@@ -143,7 +143,7 @@ function isWithinBusinessHours(date, timezone, businessHours) {
 function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone, maxSlots, businessHours, bufferMinutes = 0) {
     const alternatives = [];
     const slotDuration = durationMinutes * 60 * 1000;
-    const thirtyMinutes = 30 * 60 * 1000;
+    const fifteenMinutes = 15 * 60 * 1000;
     // Start checking from the requested time, in 30-minute increments
     let checkTime = new Date(startFrom);
     // Check for up to 3 days (in 30-min increments = 144 iterations max)
@@ -165,8 +165,8 @@ function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone,
                 });
             }
         }
-        // Move to next 30-minute slot
-        checkTime = new Date(checkTime.getTime() + thirtyMinutes);
+        // Move to next 15-minute slot
+        checkTime = new Date(checkTime.getTime() + fifteenMinutes);
     }
     return alternatives;
 }

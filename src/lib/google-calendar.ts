@@ -239,7 +239,7 @@ function findAlternativeSlots(
 ): TimeSlot[] {
   const alternatives: TimeSlot[] = [];
   const slotDuration = durationMinutes * 60 * 1000;
-  const thirtyMinutes = 30 * 60 * 1000;
+  const fifteenMinutes = 15 * 60 * 1000;
 
   // Start checking from the requested time, in 30-minute increments
   let checkTime = new Date(startFrom);
@@ -268,8 +268,8 @@ function findAlternativeSlots(
       }
     }
 
-    // Move to next 30-minute slot
-    checkTime = new Date(checkTime.getTime() + thirtyMinutes);
+    // Move to next 15-minute slot
+    checkTime = new Date(checkTime.getTime() + fifteenMinutes);
   }
 
   return alternatives;
