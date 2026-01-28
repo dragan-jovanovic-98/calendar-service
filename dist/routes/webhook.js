@@ -78,7 +78,19 @@ export async function webhookRoutes(server) {
         if (!requestedTimeString) {
             try {
                 const auth = await getAuthenticatedClient(client_id, client.google_oauth_tokens);
+                // Round up to next 30-minute slot for cleaner times
                 const now = new Date();
+                const minutes = now.getMinutes();
+                if (minutes > 0 && minutes <= 30) {
+                    now.setMinutes(30, 0, 0);
+                }
+                else if (minutes > 30) {
+                    now.setHours(now.getHours() + 1);
+                    now.setMinutes(0, 0, 0);
+                }
+                else {
+                    now.setSeconds(0, 0);
+                }
                 const endOfDay = new Date(now);
                 endOfDay.setHours(20, 0, 0, 0);
                 const slots = await findAvailableSlotsInRange(auth, calendarId, now, endOfDay, meetingLength, client.timezone, 10, // Fetch more to account for filtering
