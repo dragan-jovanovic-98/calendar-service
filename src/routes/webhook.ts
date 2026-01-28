@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { getClientById, getLeadTimezone } from '../lib/supabase.js';
+import { getClientById, getLeadTimezone, isTimeBlocked } from '../lib/supabase.js';
 import { getAuthenticatedClient } from '../lib/google-oauth.js';
 import { parseDateTime } from '../lib/date-parser.js';
+import type { TimeSlot } from '../lib/google-calendar.js';
 import {
   checkSlotAvailability,
   findAvailableSlotsInRange,
@@ -75,6 +76,19 @@ export async function webhookRoutes(server: FastifyInstance) {
       } satisfies AvailabilityResponse);
     }
 
+    // Check if broker is on vacation
+    const today = new Date();
+    const vacationCheck = isTimeBlocked(today, client);
+    if (vacationCheck.blocked && vacationCheck.reason === 'on vacation') {
+      return {
+        response: "I'm sorry, we're currently unavailable. Can I take your number and have someone call you back when we return?",
+        available: false,
+        requestedTime: null,
+        alternatives: null,
+        error: 'Broker is on vacation',
+      } satisfies AvailabilityResponse;
+    }
+
     // Check if client has connected Google Calendar
     if (!client.google_oauth_tokens) {
       return reply.status(400).send({
@@ -89,7 +103,12 @@ export async function webhookRoutes(server: FastifyInstance) {
     // Get lead timezone (from campaign, fallback to client)
     const leadTimezone = await getLeadTimezone(campaign_id, client.timezone);
     const calendarId = client.google_calendar_id || 'primary';
-    const meetingLength = client.meeting_lengths?.[0] || 30;
+    const meetingLength = client.meeting_length || 30;
+
+    // Helper to filter slots by business hours
+    const filterSlotsByBusinessHours = (slots: TimeSlot[]): TimeSlot[] => {
+      return slots.filter(slot => !isTimeBlocked(slot.start, client).blocked);
+    };
 
     // If no time requested, return available slots for today
     if (!requestedTimeString) {
@@ -105,11 +124,14 @@ export async function webhookRoutes(server: FastifyInstance) {
           now,
           endOfDay,
           meetingLength,
-          client.timezone, // Calendar is in client timezone
-          3
+          client.timezone,
+          10 // Fetch more to account for filtering
         );
 
-        const formattedSlots = slots.map(s => formatSlotForLead(s, leadTimezone));
+        // Filter by business hours
+        const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
+
+        const formattedSlots = filteredSlots.map(s => formatSlotForLead(s, leadTimezone));
         const timesForSpeech = formattedSlots.map(extractTimeForSpeech);
         const response = formattedSlots.length > 0
           ? `I have ${formatListForSpeech(timesForSpeech)} available.`
@@ -159,10 +181,13 @@ export async function webhookRoutes(server: FastifyInstance) {
           parseResult.rangeEnd!,
           meetingLength,
           client.timezone,
-          3
+          10
         );
 
-        const formattedSlots = slots.map(s => formatSlotForLead(s, leadTimezone));
+        // Filter by business hours
+        const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
+
+        const formattedSlots = filteredSlots.map(s => formatSlotForLead(s, leadTimezone));
         const timesForSpeech = formattedSlots.map(extractTimeForSpeech);
         const response = formattedSlots.length > 0
           ? `I have ${formatListForSpeech(timesForSpeech)} available. What time works best for you?`
@@ -202,14 +227,17 @@ export async function webhookRoutes(server: FastifyInstance) {
           parseResult.rangeEnd!,
           meetingLength,
           client.timezone,
-          3
+          10
         );
 
-        if (slots.length > 0) {
-          const firstSlot = slots[0]!;
+        // Filter by business hours
+        const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
+
+        if (filteredSlots.length > 0) {
+          const firstSlot = filteredSlots[0]!;
           const formattedTime = formatSlotForLead(firstSlot, leadTimezone);
           const firstTimeForSpeech = extractTimeForSpeech(formattedTime);
-          const alternatives = slots.slice(1).map(s => formatSlotForLead(s, leadTimezone));
+          const alternatives = filteredSlots.slice(1).map(s => formatSlotForLead(s, leadTimezone));
 
           return {
             response: `${firstTimeForSpeech} is available.`,
@@ -227,7 +255,44 @@ export async function webhookRoutes(server: FastifyInstance) {
           } satisfies AvailabilityResponse;
         }
       } else {
-        // Specific time requested
+        // Specific time requested - first check if it's blocked by business hours
+        const requestedSlot = parseResult.slot!.start;
+        const blockCheck = isTimeBlocked(requestedSlot, client);
+
+        if (blockCheck.blocked) {
+          // Time is outside business hours or excluded, find alternatives
+          const rangeStart = new Date(requestedSlot);
+          rangeStart.setHours(9, 0, 0, 0);
+          const rangeEnd = new Date(requestedSlot);
+          rangeEnd.setHours(20, 0, 0, 0);
+
+          const slots = await findAvailableSlotsInRange(
+            auth,
+            calendarId,
+            rangeStart,
+            rangeEnd,
+            meetingLength,
+            client.timezone,
+            10
+          );
+
+          const filteredSlots = filterSlotsByBusinessHours(slots).slice(0, 3);
+          const formattedAlternatives = filteredSlots.map(s => formatSlotForLead(s, leadTimezone));
+          const alternativeTimesForSpeech = formattedAlternatives.map(extractTimeForSpeech);
+
+          const response = formattedAlternatives.length > 0
+            ? `That time isn't available, but ${formatListForSpeech(alternativeTimesForSpeech)} ${formattedAlternatives.length === 1 ? 'is' : 'are'}.`
+            : "That time isn't available. Would a different day work?";
+
+          return {
+            response,
+            available: false,
+            requestedTime: parseResult.slot?.humanReadable || requestedTimeString,
+            alternatives: formattedAlternatives.length > 0 ? formattedAlternatives : null,
+          } satisfies AvailabilityResponse;
+        }
+
+        // Time is within business hours, check Google Calendar
         const result = await checkSlotAvailability(
           auth,
           calendarId,
@@ -238,7 +303,10 @@ export async function webhookRoutes(server: FastifyInstance) {
 
         const formattedRequestedTime = formatSlotForLead(result.requestedSlot!, leadTimezone);
         const requestedTimeForSpeech = extractTimeForSpeech(formattedRequestedTime);
-        const formattedAlternatives = result.alternatives.map(s => formatSlotForLead(s, leadTimezone));
+
+        // Filter alternatives by business hours
+        const filteredAlternatives = filterSlotsByBusinessHours(result.alternatives);
+        const formattedAlternatives = filteredAlternatives.map(s => formatSlotForLead(s, leadTimezone));
         const alternativeTimesForSpeech = formattedAlternatives.map(extractTimeForSpeech);
 
         let response: string;
