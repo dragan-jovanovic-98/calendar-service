@@ -2,6 +2,29 @@ import * as chrono from 'chrono-node';
 // Default business hours
 const DEFAULT_START_HOUR = 9;
 const DEFAULT_END_HOUR = 20;
+/**
+ * Adjust a date parsed by chrono to the correct timezone.
+ * Chrono parses times as if they're in UTC, but we want them in the target timezone.
+ */
+function adjustDateToTimezone(date, timezone) {
+    // Get the UTC offset for the target timezone at this date
+    const targetFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        timeZoneName: 'longOffset',
+    });
+    const parts = targetFormatter.formatToParts(date);
+    const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || '';
+    const match = tzPart.match(/GMT([+-])(\d{2}):(\d{2})/);
+    if (!match)
+        return date;
+    const sign = match[1] === '+' ? 1 : -1;
+    const hours = parseInt(match[2], 10);
+    const minutes = parseInt(match[3], 10);
+    const offsetMs = sign * (hours * 60 + minutes) * 60 * 1000;
+    // The date from chrono is in UTC but represents wall-clock time
+    // We need to shift it by the timezone offset
+    return new Date(date.getTime() - offsetMs);
+}
 // Time of day ranges
 const TIME_RANGES = {
     morning: { start: 9, end: 12 },
@@ -41,7 +64,9 @@ export function parseDateTime(input, timezone, referenceDate = new Date()) {
         };
     }
     const parsed = results[0];
-    const startDate = parsed.start.date();
+    // Chrono returns time in reference timezone, but we need to adjust to target timezone
+    const chronoDate = parsed.start.date();
+    const startDate = adjustDateToTimezone(chronoDate, timezone);
     // If no time was specified, treat it as a range (whole day during business hours)
     // Flag this so the voice agent can ask for a specific time
     if (!parsed.start.isCertain('hour')) {
