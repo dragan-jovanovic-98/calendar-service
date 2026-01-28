@@ -129,13 +129,44 @@ export function isTimeBlocked(
   dateTime: Date,
   client: MortgageClient
 ): { blocked: boolean; reason?: string } {
-  const dateStr = dateTime.toISOString().split('T')[0]; // YYYY-MM-DD
-  const monthDay = dateStr!.slice(5); // MM-DD
+  const timezone = client.timezone || 'America/Toronto';
+
+  // Get date/time components in client's timezone
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    weekday: 'short',
+  });
+
+  const parts = formatter.formatToParts(dateTime);
+  const getPart = (type: string) => parts.find(p => p.type === type)?.value || '';
+
+  const year = getPart('year');
+  const month = getPart('month');
+  const day = getPart('day');
+  const hour = getPart('hour');
+  const minute = getPart('minute');
+  const weekdayStr = getPart('weekday');
+
+  const dateStr = `${year}-${month}-${day}`; // YYYY-MM-DD in client timezone
+  const monthDay = `${month}-${day}`; // MM-DD
+  const timeStr = `${hour}:${minute}`; // HH:MM in client timezone
+
+  // Map weekday string to number (0=Sunday, 1=Monday, etc.)
+  const weekdayMap: Record<string, number> = {
+    'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6
+  };
+  const dayOfWeek = weekdayMap[weekdayStr] ?? 0;
 
   // Check vacation mode
   if (client.vacations && client.vacations.length > 0) {
     for (const vacation of client.vacations) {
-      if (dateStr! >= vacation.start && dateStr! <= vacation.end) {
+      if (dateStr >= vacation.start && dateStr <= vacation.end) {
         return { blocked: true, reason: 'on vacation' };
       }
     }
@@ -147,7 +178,7 @@ export function isTimeBlocked(
       if (excluded.includes('|')) {
         // Date range: "2025-01-30|2025-02-05"
         const [start, end] = excluded.split('|');
-        if (dateStr! >= start! && dateStr! <= end!) {
+        if (dateStr >= start! && dateStr <= end!) {
           return { blocked: true, reason: 'date excluded' };
         }
       } else {
@@ -168,9 +199,6 @@ export function isTimeBlocked(
 
   // Check business hours rules
   if (client.business_hours?.rules && client.business_hours.rules.length > 0) {
-    const dayOfWeek = dateTime.getDay(); // 0=Sunday, 1=Monday, etc.
-    const timeStr = dateTime.toTimeString().slice(0, 5); // HH:MM
-
     // Find a matching rule
     const matchingRule = client.business_hours.rules.find(rule => {
       if (!rule.days.includes(dayOfWeek)) return false;

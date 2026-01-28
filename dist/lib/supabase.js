@@ -67,8 +67,34 @@ export async function getLeadTimezone(campaignId, clientTimezone) {
 }
 // Check if a date/time is blocked by client settings
 export function isTimeBlocked(dateTime, client) {
-    const dateStr = dateTime.toISOString().split('T')[0]; // YYYY-MM-DD
-    const monthDay = dateStr.slice(5); // MM-DD
+    const timezone = client.timezone || 'America/Toronto';
+    // Get date/time components in client's timezone
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        weekday: 'short',
+    });
+    const parts = formatter.formatToParts(dateTime);
+    const getPart = (type) => parts.find(p => p.type === type)?.value || '';
+    const year = getPart('year');
+    const month = getPart('month');
+    const day = getPart('day');
+    const hour = getPart('hour');
+    const minute = getPart('minute');
+    const weekdayStr = getPart('weekday');
+    const dateStr = `${year}-${month}-${day}`; // YYYY-MM-DD in client timezone
+    const monthDay = `${month}-${day}`; // MM-DD
+    const timeStr = `${hour}:${minute}`; // HH:MM in client timezone
+    // Map weekday string to number (0=Sunday, 1=Monday, etc.)
+    const weekdayMap = {
+        'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6
+    };
+    const dayOfWeek = weekdayMap[weekdayStr] ?? 0;
     // Check vacation mode
     if (client.vacations && client.vacations.length > 0) {
         for (const vacation of client.vacations) {
@@ -103,8 +129,6 @@ export function isTimeBlocked(dateTime, client) {
     }
     // Check business hours rules
     if (client.business_hours?.rules && client.business_hours.rules.length > 0) {
-        const dayOfWeek = dateTime.getDay(); // 0=Sunday, 1=Monday, etc.
-        const timeStr = dateTime.toTimeString().slice(0, 5); // HH:MM
         // Find a matching rule
         const matchingRule = client.business_hours.rules.find(rule => {
             if (!rule.days.includes(dayOfWeek))
