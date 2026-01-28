@@ -31,6 +31,10 @@ export interface MortgageClient {
   excluded_dates: string[] | null;
   holidays: string[] | null;
   vacations: Vacation[] | null;
+  broker_first_name: string | null;
+  broker_last_name: string | null;
+  business_phone: string | null;
+  primary_email: string | null;
 }
 
 export interface GoogleOAuthTokens {
@@ -53,7 +57,11 @@ export async function getClientById(clientId: string): Promise<MortgageClient | 
       business_hours,
       excluded_dates,
       holidays,
-      vacations
+      vacations,
+      broker_first_name,
+      broker_last_name,
+      business_phone,
+      primary_email
     `)
     .eq('id', clientId)
     .single();

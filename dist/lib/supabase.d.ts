@@ -22,6 +22,10 @@ export interface MortgageClient {
     excluded_dates: string[] | null;
     holidays: string[] | null;
     vacations: Vacation[] | null;
+    broker_first_name: string | null;
+    broker_last_name: string | null;
+    business_phone: string | null;
+    primary_email: string | null;
 }
 export interface GoogleOAuthTokens {
     access_token: string;

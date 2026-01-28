@@ -16,7 +16,11 @@ export async function getClientById(clientId) {
       business_hours,
       excluded_dates,
       holidays,
-      vacations
+      vacations,
+      broker_first_name,
+      broker_last_name,
+      business_phone,
+      primary_email
     `)
         .eq('id', clientId)
         .single();

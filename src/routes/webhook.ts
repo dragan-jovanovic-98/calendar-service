@@ -523,16 +523,20 @@ async function handleBookAppointment(
       };
     }
 
-    // Build lead name
+    // Build names
     const leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Lead';
+    const brokerName = [client.broker_first_name, client.broker_last_name].filter(Boolean).join(' ') || client.company_name;
 
-    // Build event description
-    let description = `Booked via Retell AI voice call.\n\nLead: ${leadName}`;
+    // Build event description (lead-facing since they receive the invite)
+    let description = `You will receive a phone call from ${brokerName}.`;
+    if (client.business_phone) {
+      description += `\n\nBroker Phone: ${client.business_phone}`;
+    }
     if (lead.phone) {
-      description += `\nPhone: ${lead.phone}`;
+      description += `\nYour Phone: ${lead.phone}`;
     }
     if (lead.email) {
-      description += `\nEmail: ${lead.email}`;
+      description += `\nYour Email: ${lead.email}`;
     }
 
     // Create Google Calendar event
