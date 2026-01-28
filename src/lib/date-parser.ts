@@ -125,9 +125,19 @@ export function parseDateTime(
   }
 
   const parsed = results[0]!;
-  // Chrono returns time in reference timezone, but we need to adjust to target timezone
-  const chronoDate = parsed.start.date();
-  const startDate = adjustDateToTimezone(chronoDate, timezone);
+  // Chrono parses time in server's local timezone, but we need it in target timezone
+  // Extract the wall-clock components and reconstruct in target timezone
+  const chronoStart = parsed.start;
+  const year = chronoStart.get('year') || new Date().getFullYear();
+  const month = (chronoStart.get('month') || 1) - 1; // 0-indexed
+  const day = chronoStart.get('day') || 1;
+  const hour = chronoStart.get('hour') || 0;
+  const minute = chronoStart.get('minute') || 0;
+
+  // Create date in target timezone
+  const utcDate = new Date(Date.UTC(year, month, day, hour, minute, 0, 0));
+  const offsetMs = getTimezoneOffsetMs(utcDate, timezone);
+  const startDate = new Date(utcDate.getTime() - offsetMs);
 
   // If no time was specified, treat it as a range (whole day during business hours)
   // Flag this so the voice agent can ask for a specific time
@@ -189,21 +199,36 @@ function parseAfterTime(
 
   // Parse the date part (e.g., "today", "tomorrow", "Tuesday")
   const withoutAfter = input.replace(/after\s+\d{1,2}\s*(am|pm)?/i, '').trim();
-  let baseDate: Date;
+
+  let year: number, month: number, day: number;
 
   if (withoutAfter) {
     const dateResults = chrono.parse(withoutAfter, {
       instant: referenceDate,
       timezone,
     });
-    const chronoDate = dateResults.length > 0 ? dateResults[0]!.start.date() : referenceDate;
-    baseDate = adjustDateToTimezone(chronoDate, timezone);
+    if (dateResults.length > 0) {
+      const parsed = dateResults[0]!.start;
+      year = parsed.get('year') || referenceDate.getFullYear();
+      month = (parsed.get('month') || 1) - 1;
+      day = parsed.get('day') || 1;
+    } else {
+      year = referenceDate.getFullYear();
+      month = referenceDate.getMonth();
+      day = referenceDate.getDate();
+    }
   } else {
-    baseDate = new Date(referenceDate);
+    year = referenceDate.getFullYear();
+    month = referenceDate.getMonth();
+    day = referenceDate.getDate();
   }
 
-  const rangeStart = createDateInTimezone(baseDate, hour, 0, timezone);
-  const rangeEnd = createDateInTimezone(baseDate, DEFAULT_END_HOUR, 0, timezone);
+  // Create dates in target timezone
+  const startUtc = new Date(Date.UTC(year, month, day, hour, 0, 0, 0));
+  const endUtc = new Date(Date.UTC(year, month, day, DEFAULT_END_HOUR, 0, 0, 0));
+  const offsetMs = getTimezoneOffsetMs(startUtc, timezone);
+  const rangeStart = new Date(startUtc.getTime() - offsetMs);
+  const rangeEnd = new Date(endUtc.getTime() - offsetMs);
 
   return {
     success: true,
@@ -232,21 +257,36 @@ function parseTimeOfDay(
 ): ParseResult {
   // Remove the period word to parse the date part
   const withoutPeriod = input.replace(period, '').trim();
-  let baseDate: Date;
+
+  let year: number, month: number, day: number;
 
   if (withoutPeriod) {
     const dateResults = chrono.parse(withoutPeriod, {
       instant: referenceDate,
       timezone,
     });
-    const chronoDate = dateResults.length > 0 ? dateResults[0]!.start.date() : referenceDate;
-    baseDate = adjustDateToTimezone(chronoDate, timezone);
+    if (dateResults.length > 0) {
+      const parsed = dateResults[0]!.start;
+      year = parsed.get('year') || referenceDate.getFullYear();
+      month = (parsed.get('month') || 1) - 1;
+      day = parsed.get('day') || 1;
+    } else {
+      year = referenceDate.getFullYear();
+      month = referenceDate.getMonth();
+      day = referenceDate.getDate();
+    }
   } else {
-    baseDate = new Date(referenceDate);
+    year = referenceDate.getFullYear();
+    month = referenceDate.getMonth();
+    day = referenceDate.getDate();
   }
 
-  const rangeStart = createDateInTimezone(baseDate, hours.start, 0, timezone);
-  const rangeEnd = createDateInTimezone(baseDate, hours.end, 0, timezone);
+  // Create dates in target timezone
+  const startUtc = new Date(Date.UTC(year, month, day, hours.start, 0, 0, 0));
+  const endUtc = new Date(Date.UTC(year, month, day, hours.end, 0, 0, 0));
+  const offsetMs = getTimezoneOffsetMs(startUtc, timezone);
+  const rangeStart = new Date(startUtc.getTime() - offsetMs);
+  const rangeEnd = new Date(endUtc.getTime() - offsetMs);
 
   return {
     success: true,
