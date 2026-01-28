@@ -115,7 +115,7 @@ function getTimeInTimezone(date, timezone) {
     return { hour, minute, dayOfWeek };
 }
 /**
- * Check if a time falls within business hours
+ * Check if a time falls within business hours (simple boolean check)
  */
 function isWithinBusinessHours(date, timezone, businessHours) {
     // Default business hours: Mon-Fri 9am-5pm
@@ -129,28 +129,11 @@ function isWithinBusinessHours(date, timezone, businessHours) {
     for (const rule of rules) {
         if (rule.days.includes(dayOfWeek)) {
             if (currentTime >= rule.start && currentTime < rule.end) {
-                return { within: true };
-            }
-            // If before start time on a valid day, return next start
-            if (currentTime < rule.start) {
-                const [startHour, startMinute] = rule.start.split(':').map(Number);
-                return { within: false, nextStart: { hour: startHour, minute: startMinute } };
+                return true;
             }
         }
     }
-    // Not within any rule, find the next valid day
-    // Look ahead up to 7 days to find next business day
-    for (let daysAhead = 1; daysAhead <= 7; daysAhead++) {
-        const nextDay = (dayOfWeek + daysAhead) % 7;
-        for (const rule of rules) {
-            if (rule.days.includes(nextDay)) {
-                const [startHour, startMinute] = rule.start.split(':').map(Number);
-                return { within: false, nextStart: { hour: startHour, minute: startMinute }, nextDay: true };
-            }
-        }
-    }
-    // Fallback to default 9am next day
-    return { within: false, nextStart: { hour: 9, minute: 0 }, nextDay: true };
+    return false;
 }
 /**
  * Find alternative available slots
@@ -158,34 +141,30 @@ function isWithinBusinessHours(date, timezone, businessHours) {
 function findAlternativeSlots(startFrom, durationMinutes, busyPeriods, timezone, maxSlots, businessHours) {
     const alternatives = [];
     const slotDuration = durationMinutes * 60 * 1000;
+    const thirtyMinutes = 30 * 60 * 1000;
     // Start checking from the requested time, in 30-minute increments
     let checkTime = new Date(startFrom);
-    // Check for up to 3 days
+    // Check for up to 3 days (in 30-min increments = 144 iterations max)
     const maxCheckTime = new Date(startFrom);
     maxCheckTime.setDate(maxCheckTime.getDate() + 3);
-    while (alternatives.length < maxSlots && checkTime < maxCheckTime) {
-        const businessCheck = isWithinBusinessHours(checkTime, timezone, businessHours);
-        if (!businessCheck.within) {
-            // Skip to next valid business hours
-            if (businessCheck.nextDay) {
-                checkTime.setDate(checkTime.getDate() + 1);
+    let iterations = 0;
+    const maxIterations = 500; // Safety limit
+    while (alternatives.length < maxSlots && checkTime < maxCheckTime && iterations < maxIterations) {
+        iterations++;
+        // Check if this time is within business hours
+        if (isWithinBusinessHours(checkTime, timezone, businessHours)) {
+            const slotEnd = new Date(checkTime.getTime() + slotDuration);
+            if (!isSlotBusy(checkTime, slotEnd, busyPeriods)) {
+                alternatives.push({
+                    start: new Date(checkTime),
+                    end: slotEnd,
+                    startRFC3339: toRFC3339(checkTime, timezone),
+                    endRFC3339: toRFC3339(slotEnd, timezone),
+                });
             }
-            if (businessCheck.nextStart) {
-                checkTime.setHours(businessCheck.nextStart.hour, businessCheck.nextStart.minute, 0, 0);
-            }
-            continue;
-        }
-        const slotEnd = new Date(checkTime.getTime() + slotDuration);
-        if (!isSlotBusy(checkTime, slotEnd, busyPeriods)) {
-            alternatives.push({
-                start: new Date(checkTime),
-                end: slotEnd,
-                startRFC3339: toRFC3339(checkTime, timezone),
-                endRFC3339: toRFC3339(slotEnd, timezone),
-            });
         }
         // Move to next 30-minute slot
-        checkTime = new Date(checkTime.getTime() + 30 * 60 * 1000);
+        checkTime = new Date(checkTime.getTime() + thirtyMinutes);
     }
     return alternatives;
 }
