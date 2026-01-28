@@ -3,11 +3,9 @@ import * as chrono from 'chrono-node';
 const DEFAULT_START_HOUR = 9;
 const DEFAULT_END_HOUR = 20;
 /**
- * Adjust a date parsed by chrono to the correct timezone.
- * Chrono parses times as if they're in UTC, but we want them in the target timezone.
+ * Get the UTC offset in milliseconds for a timezone at a given date
  */
-function adjustDateToTimezone(date, timezone) {
-    // Get the UTC offset for the target timezone at this date
+function getTimezoneOffsetMs(date, timezone) {
     const targetFormatter = new Intl.DateTimeFormat('en-US', {
         timeZone: timezone,
         timeZoneName: 'longOffset',
@@ -16,14 +14,41 @@ function adjustDateToTimezone(date, timezone) {
     const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || '';
     const match = tzPart.match(/GMT([+-])(\d{2}):(\d{2})/);
     if (!match)
-        return date;
+        return 0;
     const sign = match[1] === '+' ? 1 : -1;
     const hours = parseInt(match[2], 10);
     const minutes = parseInt(match[3], 10);
-    const offsetMs = sign * (hours * 60 + minutes) * 60 * 1000;
-    // The date from chrono is in UTC but represents wall-clock time
-    // We need to shift it by the timezone offset
+    return sign * (hours * 60 + minutes) * 60 * 1000;
+}
+/**
+ * Adjust a date parsed by chrono to the correct timezone.
+ * Chrono parses times as if they're in UTC, but we want them in the target timezone.
+ */
+function adjustDateToTimezone(date, timezone) {
+    const offsetMs = getTimezoneOffsetMs(date, timezone);
     return new Date(date.getTime() - offsetMs);
+}
+/**
+ * Create a Date object for a specific time in a specific timezone.
+ * Takes a base date and sets the time to the specified hour in the target timezone.
+ */
+function createDateInTimezone(baseDate, hour, minute, timezone) {
+    // Get the date components in the target timezone
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    });
+    const parts = formatter.formatToParts(baseDate);
+    const year = parseInt(parts.find(p => p.type === 'year')?.value || '2026', 10);
+    const month = parseInt(parts.find(p => p.type === 'month')?.value || '1', 10) - 1;
+    const day = parseInt(parts.find(p => p.type === 'day')?.value || '1', 10);
+    // Create a UTC date for the desired wall-clock time
+    const utcDate = new Date(Date.UTC(year, month, day, hour, minute, 0, 0));
+    // Adjust for timezone offset
+    const offsetMs = getTimezoneOffsetMs(utcDate, timezone);
+    return new Date(utcDate.getTime() - offsetMs);
 }
 // Time of day ranges
 const TIME_RANGES = {
@@ -70,10 +95,8 @@ export function parseDateTime(input, timezone, referenceDate = new Date()) {
     // If no time was specified, treat it as a range (whole day during business hours)
     // Flag this so the voice agent can ask for a specific time
     if (!parsed.start.isCertain('hour')) {
-        const dayStart = new Date(startDate);
-        dayStart.setHours(DEFAULT_START_HOUR, 0, 0, 0);
-        const dayEnd = new Date(startDate);
-        dayEnd.setHours(DEFAULT_END_HOUR, 0, 0, 0);
+        const dayStart = createDateInTimezone(startDate, DEFAULT_START_HOUR, 0, timezone);
+        const dayEnd = createDateInTimezone(startDate, DEFAULT_END_HOUR, 0, timezone);
         return {
             success: true,
             isRange: true,
@@ -127,15 +150,14 @@ function parseAfterTime(input, match, timezone, referenceDate) {
             instant: referenceDate,
             timezone,
         });
-        baseDate = dateResults.length > 0 ? dateResults[0].start.date() : referenceDate;
+        const chronoDate = dateResults.length > 0 ? dateResults[0].start.date() : referenceDate;
+        baseDate = adjustDateToTimezone(chronoDate, timezone);
     }
     else {
         baseDate = new Date(referenceDate);
     }
-    const rangeStart = new Date(baseDate);
-    rangeStart.setHours(hour, 0, 0, 0);
-    const rangeEnd = new Date(baseDate);
-    rangeEnd.setHours(DEFAULT_END_HOUR, 0, 0, 0);
+    const rangeStart = createDateInTimezone(baseDate, hour, 0, timezone);
+    const rangeEnd = createDateInTimezone(baseDate, DEFAULT_END_HOUR, 0, timezone);
     return {
         success: true,
         isRange: true,
@@ -162,15 +184,14 @@ function parseTimeOfDay(input, period, hours, timezone, referenceDate) {
             instant: referenceDate,
             timezone,
         });
-        baseDate = dateResults.length > 0 ? dateResults[0].start.date() : referenceDate;
+        const chronoDate = dateResults.length > 0 ? dateResults[0].start.date() : referenceDate;
+        baseDate = adjustDateToTimezone(chronoDate, timezone);
     }
     else {
         baseDate = new Date(referenceDate);
     }
-    const rangeStart = new Date(baseDate);
-    rangeStart.setHours(hours.start, 0, 0, 0);
-    const rangeEnd = new Date(baseDate);
-    rangeEnd.setHours(hours.end, 0, 0, 0);
+    const rangeStart = createDateInTimezone(baseDate, hours.start, 0, timezone);
+    const rangeEnd = createDateInTimezone(baseDate, hours.end, 0, timezone);
     return {
         success: true,
         isRange: true,
