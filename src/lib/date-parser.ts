@@ -128,16 +128,30 @@ export function parseDateTime(
   // Chrono parses time in server's local timezone, but we need it in target timezone
   // Extract the wall-clock components and reconstruct in target timezone
   const chronoStart = parsed.start;
-  const year = chronoStart.get('year') || new Date().getFullYear();
-  const month = (chronoStart.get('month') || 1) - 1; // 0-indexed
-  const day = chronoStart.get('day') || 1;
+  let year = chronoStart.get('year') || new Date().getFullYear();
+  let month = (chronoStart.get('month') || 1) - 1; // 0-indexed
+  let day = chronoStart.get('day') || 1;
   const hour = chronoStart.get('hour') || 0;
   const minute = chronoStart.get('minute') || 0;
 
   // Create date in target timezone
-  const utcDate = new Date(Date.UTC(year, month, day, hour, minute, 0, 0));
-  const offsetMs = getTimezoneOffsetMs(utcDate, timezone);
-  const startDate = new Date(utcDate.getTime() - offsetMs);
+  let utcDate = new Date(Date.UTC(year, month, day, hour, minute, 0, 0));
+  let offsetMs = getTimezoneOffsetMs(utcDate, timezone);
+  let startDate = new Date(utcDate.getTime() - offsetMs);
+
+  // If the parsed date is in the past and only a weekday was mentioned (no explicit date),
+  // assume the user means the NEXT occurrence of that weekday
+  const isWeekdayOnly = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(normalizedInput)
+    && !normalizedInput.includes('last')
+    && !normalizedInput.includes('past')
+    && !normalizedInput.includes('previous');
+
+  if (isWeekdayOnly && startDate < referenceDate) {
+    // Add 7 days to get the next occurrence
+    utcDate = new Date(utcDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    offsetMs = getTimezoneOffsetMs(utcDate, timezone);
+    startDate = new Date(utcDate.getTime() - offsetMs);
+  }
 
   // If no time was specified, treat it as a range (whole day during business hours)
   // Flag this so the voice agent can ask for a specific time
@@ -212,6 +226,18 @@ function parseAfterTime(
       year = parsed.get('year') || referenceDate.getFullYear();
       month = (parsed.get('month') || 1) - 1;
       day = parsed.get('day') || 1;
+
+      // If weekday-only and in the past, move to next week
+      const isWeekdayOnly = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i.test(withoutAfter.trim());
+      if (isWeekdayOnly) {
+        const testDate = new Date(Date.UTC(year, month, day));
+        if (testDate < referenceDate) {
+          testDate.setDate(testDate.getDate() + 7);
+          year = testDate.getUTCFullYear();
+          month = testDate.getUTCMonth();
+          day = testDate.getUTCDate();
+        }
+      }
     } else {
       year = referenceDate.getFullYear();
       month = referenceDate.getMonth();
@@ -270,6 +296,18 @@ function parseTimeOfDay(
       year = parsed.get('year') || referenceDate.getFullYear();
       month = (parsed.get('month') || 1) - 1;
       day = parsed.get('day') || 1;
+
+      // If weekday-only and in the past, move to next week
+      const isWeekdayOnly = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i.test(withoutPeriod.trim());
+      if (isWeekdayOnly) {
+        const testDate = new Date(Date.UTC(year, month, day));
+        if (testDate < referenceDate) {
+          testDate.setDate(testDate.getDate() + 7);
+          year = testDate.getUTCFullYear();
+          month = testDate.getUTCMonth();
+          day = testDate.getUTCDate();
+        }
+      }
     } else {
       year = referenceDate.getFullYear();
       month = referenceDate.getMonth();
