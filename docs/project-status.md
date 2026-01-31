@@ -72,12 +72,18 @@
 - Live at https://calendar.courtside-ai.com
 
 **Next Steps**:
-1. (Optional) SMS confirmation after booking via Twilio
-2. (Optional) Reschedule/cancel appointment functions
-3. Integrate frontend (broker-view) with backend API:
+1. **Google Calendar booking link tracking** (Priority)
+   - Create webhook endpoint `/webhook/google-calendar`
+   - Subscribe to calendar push notifications when broker connects
+   - On new booking: fetch event, extract attendee phone/email
+   - Match to lead in database, store in `mortgage_appointments` with `source: 'google_booking'`
+   - Handle watch channel renewal (expires ~7 days)
+2. (Optional) SMS confirmation after booking via Twilio
+3. (Optional) Reschedule/cancel appointment functions
+4. Frontend (broker-view):
+   - Buffer time setting UI
    - Connect Google OAuth flow
    - Calendar selection UI
-   - Dashboard for brokers
 
 ## Related Projects
 - **Frontend**: https://github.com/dragan-jovanovic-98/broker-view (Lovable)
