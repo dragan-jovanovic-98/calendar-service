@@ -369,10 +369,12 @@ async function handleBookAppointment(request, reply, clientId, leadId, campaignI
                 error: 'Requested time is no longer available',
             };
         }
-        // Build names
-        const leadName = lead
-            ? [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Lead'
-            : (leadPhone ? `Lead (${leadPhone})` : 'Lead');
+        // Build names (prefer lead data, fall back to Retell dynamic variables)
+        const dynVars = request.body.call.dynamic_variables;
+        const leadFirstName = lead?.first_name || dynVars?.first_name || null;
+        const leadLastName = lead?.last_name || dynVars?.last_name || null;
+        const leadName = [leadFirstName, leadLastName].filter(Boolean).join(' ')
+            || (leadPhone ? `Lead (${leadPhone})` : 'Lead');
         const brokerName = [client.broker_first_name, client.broker_last_name].filter(Boolean).join(' ') || client.company_name;
         // Build event description (lead-facing since they receive the invite)
         let description = `You will receive a phone call from ${brokerName}.`;
