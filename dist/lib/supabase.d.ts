@@ -45,7 +45,7 @@ export interface LeadWithPhone {
     phone: string | null;
 }
 export declare function getLeadById(leadId: string): Promise<LeadWithPhone | null>;
-export declare function createAppointment(clientId: string, leadId: string, startTime: Date, endTime: Date, timezone: string, calendarEventId: string, externalCallId?: string): Promise<{
+export declare function createAppointment(clientId: string, leadId: string | null, startTime: Date, endTime: Date, timezone: string, calendarEventId: string, externalCallId?: string): Promise<{
     id: string;
 }>;
 export declare function updateLeadStatus(leadId: string, status: string): Promise<void>;

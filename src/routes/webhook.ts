@@ -23,6 +23,9 @@ interface RetellWebhookBody {
     requested_time_string?: string;
   };
   call: {
+    call_id?: string;
+    to_number?: string;
+    from_number?: string;
     metadata: {
       client_id: string;
       lead_id?: string;
@@ -406,16 +409,6 @@ async function handleBookAppointment(
     });
   }
 
-  if (!leadId) {
-    return reply.status(400).send({
-      response: "I'm sorry, I'm having trouble booking right now.",
-      booked: false,
-      appointmentTime: null,
-      calendarEventId: null,
-      error: 'lead_id is required in call metadata',
-    });
-  }
-
   if (!requestedTimeString) {
     return reply.status(400).send({
       response: "What time would you like to book?",
@@ -449,17 +442,17 @@ async function handleBookAppointment(
     });
   }
 
-  // Fetch lead data
-  const lead = await getLeadById(leadId);
-  if (!lead) {
-    return reply.status(404).send({
-      response: "I'm sorry, I'm having trouble booking right now.",
-      booked: false,
-      appointmentTime: null,
-      calendarEventId: null,
-      error: 'Lead not found',
-    });
+  // Fetch lead data if lead_id is available
+  let lead: import('../lib/supabase.js').LeadWithPhone | null = null;
+  if (leadId) {
+    lead = await getLeadById(leadId);
+    if (!lead) {
+      console.warn(`Lead ${leadId} not found, continuing without lead data`);
+    }
   }
+
+  // If no lead data, get phone from Retell call object (to_number)
+  const leadPhone = lead?.phone || request.body.call.to_number || null;
 
   // Get lead timezone (from campaign, fallback to client)
   const leadTimezone = await getLeadTimezone(campaignId, client.timezone);
@@ -532,7 +525,9 @@ async function handleBookAppointment(
     }
 
     // Build names
-    const leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Lead';
+    const leadName = lead
+      ? [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Lead'
+      : (leadPhone ? `Lead (${leadPhone})` : 'Lead');
     const brokerName = [client.broker_first_name, client.broker_last_name].filter(Boolean).join(' ') || client.company_name;
 
     // Build event description (lead-facing since they receive the invite)
@@ -540,10 +535,10 @@ async function handleBookAppointment(
     if (client.business_phone) {
       description += `\n\nBroker Phone: ${client.business_phone}`;
     }
-    if (lead.phone) {
-      description += `\nYour Phone: ${lead.phone}`;
+    if (leadPhone) {
+      description += `\nYour Phone: ${leadPhone}`;
     }
-    if (lead.email) {
+    if (lead?.email) {
       description += `\nYour Email: ${lead.email}`;
     }
 
@@ -556,7 +551,7 @@ async function handleBookAppointment(
       requestedSlot,
       meetingLength,
       client.timezone,
-      lead.email || undefined // Only add as attendee if they have email
+      lead?.email || undefined // Only add as attendee if they have email
     );
 
     // Calculate end time
@@ -565,16 +560,18 @@ async function handleBookAppointment(
     // Store appointment in database
     await createAppointment(
       clientId,
-      leadId,
+      leadId || null,
       requestedSlot,
       endTime,
       client.timezone,
       eventResult.eventId,
-      request.body.call.metadata.client_id // Using client_id as fallback since external_call_id isn't in metadata
+      request.body.call.call_id || request.body.call.metadata.client_id
     );
 
-    // Update lead status
-    await updateLeadStatus(leadId, 'appointment_booked');
+    // Update lead status (only if we have a lead)
+    if (leadId) {
+      await updateLeadStatus(leadId, 'appointment_booked');
+    }
 
     // Format the time for response
     const formattedTime = formatSlotForLead(availabilityCheck.requestedSlot!, leadTimezone);

@@ -195,7 +195,7 @@ export async function getLeadById(leadId: string): Promise<LeadWithPhone | null>
 // Create an appointment record
 export async function createAppointment(
   clientId: string,
-  leadId: string,
+  leadId: string | null,
   startTime: Date,
   endTime: Date,
   timezone: string,

@@ -276,15 +276,6 @@ async function handleBookAppointment(request, reply, clientId, leadId, campaignI
             error: 'client_id is required in call metadata',
         });
     }
-    if (!leadId) {
-        return reply.status(400).send({
-            response: "I'm sorry, I'm having trouble booking right now.",
-            booked: false,
-            appointmentTime: null,
-            calendarEventId: null,
-            error: 'lead_id is required in call metadata',
-        });
-    }
     if (!requestedTimeString) {
         return reply.status(400).send({
             response: "What time would you like to book?",
@@ -315,17 +306,16 @@ async function handleBookAppointment(request, reply, clientId, leadId, campaignI
             error: 'Client has not connected Google Calendar',
         });
     }
-    // Fetch lead data
-    const lead = await getLeadById(leadId);
-    if (!lead) {
-        return reply.status(404).send({
-            response: "I'm sorry, I'm having trouble booking right now.",
-            booked: false,
-            appointmentTime: null,
-            calendarEventId: null,
-            error: 'Lead not found',
-        });
+    // Fetch lead data if lead_id is available
+    let lead = null;
+    if (leadId) {
+        lead = await getLeadById(leadId);
+        if (!lead) {
+            console.warn(`Lead ${leadId} not found, continuing without lead data`);
+        }
     }
+    // If no lead data, get phone from Retell call object (to_number)
+    const leadPhone = lead?.phone || request.body.call.to_number || null;
     // Get lead timezone (from campaign, fallback to client)
     const leadTimezone = await getLeadTimezone(campaignId, client.timezone);
     const calendarId = client.google_calendar_id || 'primary';
@@ -380,29 +370,32 @@ async function handleBookAppointment(request, reply, clientId, leadId, campaignI
             };
         }
         // Build names
-        const leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Lead';
+        const leadName = lead
+            ? [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Lead'
+            : (leadPhone ? `Lead (${leadPhone})` : 'Lead');
         const brokerName = [client.broker_first_name, client.broker_last_name].filter(Boolean).join(' ') || client.company_name;
         // Build event description (lead-facing since they receive the invite)
         let description = `You will receive a phone call from ${brokerName}.`;
         if (client.business_phone) {
             description += `\n\nBroker Phone: ${client.business_phone}`;
         }
-        if (lead.phone) {
-            description += `\nYour Phone: ${lead.phone}`;
+        if (leadPhone) {
+            description += `\nYour Phone: ${leadPhone}`;
         }
-        if (lead.email) {
+        if (lead?.email) {
             description += `\nYour Email: ${lead.email}`;
         }
         // Create Google Calendar event
-        const eventResult = await createCalendarEvent(auth, calendarId, `Meeting with ${leadName}`, description, requestedSlot, meetingLength, client.timezone, lead.email || undefined // Only add as attendee if they have email
+        const eventResult = await createCalendarEvent(auth, calendarId, `Meeting with ${leadName}`, description, requestedSlot, meetingLength, client.timezone, lead?.email || undefined // Only add as attendee if they have email
         );
         // Calculate end time
         const endTime = new Date(requestedSlot.getTime() + meetingLength * 60 * 1000);
         // Store appointment in database
-        await createAppointment(clientId, leadId, requestedSlot, endTime, client.timezone, eventResult.eventId, request.body.call.metadata.client_id // Using client_id as fallback since external_call_id isn't in metadata
-        );
-        // Update lead status
-        await updateLeadStatus(leadId, 'appointment_booked');
+        await createAppointment(clientId, leadId || null, requestedSlot, endTime, client.timezone, eventResult.eventId, request.body.call.call_id || request.body.call.metadata.client_id);
+        // Update lead status (only if we have a lead)
+        if (leadId) {
+            await updateLeadStatus(leadId, 'appointment_booked');
+        }
         // Format the time for response
         const formattedTime = formatSlotForLead(availabilityCheck.requestedSlot, leadTimezone);
         return {
