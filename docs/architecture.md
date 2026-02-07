@@ -246,11 +246,55 @@ CREATE POLICY "Clients can update own profile"
 
 ## Deployment (Digital Ocean)
 
-### Server Setup
-- **Droplet**: 1 vCPU, 2GB RAM (scale as needed)
-- **OS**: Ubuntu 22.04 LTS
-- **Process Manager**: PM2 for Node.js
-- **Reverse Proxy**: Nginx with SSL (Let's Encrypt)
+### Server Details
+- **IP**: 138.68.232.89
+- **Domain**: calendar.courtside-ai.com
+- **Droplet**: 1 vCPU, 512MB RAM, 10GB SSD (SFO2)
+- **OS**: Ubuntu
+- **SSH**: `ssh root@138.68.232.89`
+
+### File Structure
+```
+/var/www/calendar-service/        # Project root
+├── dist/                         # Compiled JS (committed to git)
+│   ├── index.js                  # PM2 entrypoint
+│   ├── routes/
+│   ├── lib/
+│   └── config/
+├── src/                          # TypeScript source
+├── .env                          # Environment variables
+├── package.json
+└── node_modules/
+```
+
+### Process Manager: PM2
+```bash
+pm2 list                          # Show running processes
+pm2 show 0                        # Show calendar-service details
+pm2 restart calendar-service      # Restart after deploy
+pm2 logs calendar-service         # View logs
+pm2 logs calendar-service --lines 100  # Last 100 lines
+```
+
+- **App name**: `calendar-service` (id: 0)
+- **Script**: `/var/www/calendar-service/dist/index.js`
+- **Working dir**: `/var/www/calendar-service`
+
+### Nginx + SSL
+- **Config file**: `/etc/nginx/sites-enabled/calendar-service`
+- **SSL**: Let's Encrypt (Certbot auto-managed)
+- **Proxy**: Port 80/443 → localhost:3000
+- HTTP automatically redirects to HTTPS
+
+### Deploy Process
+```bash
+ssh root@138.68.232.89
+cd /var/www/calendar-service
+git pull origin main
+pm2 restart calendar-service
+```
+
+Note: `dist/` is committed to git, so no need to run `npm run build` on the server. Just pull and restart.
 
 ### Environment Variables
 ```bash
@@ -265,16 +309,10 @@ SUPABASE_SERVICE_KEY=xxx  # Service key for server-side operations
 # Google OAuth
 GOOGLE_CLIENT_ID=xxx
 GOOGLE_CLIENT_SECRET=xxx
-GOOGLE_REDIRECT_URI=https://yourdomain.com/auth/google/callback
-
-# Twilio
-TWILIO_ACCOUNT_SID=xxx
-TWILIO_AUTH_TOKEN=xxx
-TWILIO_PHONE_NUMBER=+1234567890
+GOOGLE_REDIRECT_URI=https://calendar.courtside-ai.com/auth/google/callback
 
 # Security
 ENCRYPTION_KEY=xxx  # 32-byte key for token encryption
-RETELL_WEBHOOK_SECRET=xxx  # If Retell provides webhook signing
 ```
 
 ### Health Checks
