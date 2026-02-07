@@ -147,6 +147,155 @@ export async function updateLeadStatus(leadId, status) {
         throw new Error(`Failed to update lead status: ${error.message}`);
     }
 }
+// Look up watch channel by Google's channel ID (for webhook handler)
+export async function getWatchChannelByChannelId(channelId) {
+    const { data, error } = await supabase
+        .from('calendar_watch_channels')
+        .select('*')
+        .eq('channel_id', channelId)
+        .eq('status', 'active')
+        .single();
+    if (error) {
+        console.error('Error fetching watch channel:', error);
+        return null;
+    }
+    return data;
+}
+// Create or update a watch channel (one per client+calendar)
+export async function upsertWatchChannel(params) {
+    const { error } = await supabase
+        .from('calendar_watch_channels')
+        .upsert({
+        client_id: params.clientId,
+        channel_id: params.channelId,
+        resource_id: params.resourceId,
+        calendar_id: params.calendarId,
+        expiration: params.expiration.toISOString(),
+        status: 'active',
+        updated_at: new Date().toISOString(),
+    }, { onConflict: 'client_id,calendar_id' });
+    if (error) {
+        console.error('Error upserting watch channel:', error);
+        return false;
+    }
+    return true;
+}
+// Save sync progress after processing events
+export async function updateWatchChannelSyncToken(id, syncToken) {
+    const { error } = await supabase
+        .from('calendar_watch_channels')
+        .update({ sync_token: syncToken, updated_at: new Date().toISOString() })
+        .eq('id', id);
+    if (error) {
+        console.error('Error updating sync token:', error);
+        return false;
+    }
+    return true;
+}
+// Clear sync token (e.g., after 410 Gone) to trigger full re-sync
+export async function clearWatchChannelSyncToken(id) {
+    const { error } = await supabase
+        .from('calendar_watch_channels')
+        .update({ sync_token: null, updated_at: new Date().toISOString() })
+        .eq('id', id);
+    if (error) {
+        console.error('Error clearing sync token:', error);
+        return false;
+    }
+    return true;
+}
+// Mark channel inactive when stopped
+export async function markWatchChannelStopped(channelId) {
+    const { error } = await supabase
+        .from('calendar_watch_channels')
+        .update({ status: 'stopped', updated_at: new Date().toISOString() })
+        .eq('channel_id', channelId);
+    if (error) {
+        console.error('Error marking watch channel stopped:', error);
+        return false;
+    }
+    return true;
+}
+// Find channels expiring within N minutes (for renewal)
+export async function getExpiringWatchChannels(withinMinutes) {
+    const threshold = new Date(Date.now() + withinMinutes * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+        .from('calendar_watch_channels')
+        .select('*')
+        .eq('status', 'active')
+        .lte('expiration', threshold);
+    if (error) {
+        console.error('Error fetching expiring watch channels:', error);
+        return [];
+    }
+    return data || [];
+}
+// Check if an appointment already exists for a calendar event ID (duplicate prevention)
+export async function getAppointmentByCalendarEventId(eventId) {
+    const { data, error } = await supabase
+        .from('mortgage_appointments')
+        .select('id')
+        .eq('external_calendar_id', eventId)
+        .maybeSingle();
+    if (error) {
+        console.error('Error checking appointment by event ID:', error);
+        return null;
+    }
+    return data;
+}
+// Match a booking attendee email to an existing lead
+export async function findLeadByEmail(clientId, email) {
+    const { data, error } = await supabase
+        .from('mortgage_leads')
+        .select('id, first_name, last_name')
+        .eq('client_id', clientId)
+        .ilike('email', email)
+        .limit(1)
+        .maybeSingle();
+    if (error) {
+        console.error('Error finding lead by email:', error);
+        return null;
+    }
+    return data;
+}
+// Create an appointment from a Google booking page event
+export async function createAppointmentFromGoogleBooking(params) {
+    const { data, error } = await supabase
+        .from('mortgage_appointments')
+        .insert({
+        client_id: params.clientId,
+        lead_id: params.leadId,
+        start_time: params.startTime,
+        end_time: params.endTime,
+        timezone: params.timezone,
+        external_calendar_id: params.calendarEventId,
+        external_call_id: '',
+        status: 'scheduled',
+        source: 'google_booking',
+        title: params.title,
+        notes: params.notes,
+        external_booking_url: params.externalBookingUrl,
+    })
+        .select('id')
+        .single();
+    if (error) {
+        console.error('Error creating appointment from Google booking:', error);
+        throw new Error(`Failed to create Google booking appointment: ${error.message}`);
+    }
+    return { id: data.id };
+}
+// Get all clients with active OAuth tokens (for bootstrapping watch channels)
+export async function getClientsWithOAuth() {
+    const { data, error } = await supabase
+        .from('mortgage_clients')
+        .select('id, google_oauth_tokens, google_calendar_id')
+        .not('google_oauth_tokens', 'is', null);
+    if (error) {
+        console.error('Error fetching clients with OAuth:', error);
+        return [];
+    }
+    return data || [];
+}
 // Check if a date/time is blocked by client settings
 export function isTimeBlocked(dateTime, client) {
     const timezone = client.timezone || 'America/Toronto';

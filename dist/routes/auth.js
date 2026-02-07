@@ -2,6 +2,7 @@ import { getAuthUrl, exchangeCodeForTokens, getAuthenticatedClient } from '../li
 import { encryptTokens } from '../lib/encryption.js';
 import { getClientById, updateClientOAuthTokens, updateClientCalendarId } from '../lib/supabase.js';
 import { listCalendars } from '../lib/google-calendar.js';
+import { createWatchChannel } from '../lib/calendar-watch.js';
 import { env } from '../config/env.js';
 export async function authRoutes(server) {
     // Initiate Google OAuth flow
@@ -63,6 +64,14 @@ export async function authRoutes(server) {
             }
             catch (calErr) {
                 console.error('Failed to auto-select calendar, using primary:', calErr);
+            }
+            // Set up push notifications for calendar changes (non-fatal)
+            try {
+                const watchAuth = await getAuthenticatedClient(clientId, encryptedTokens);
+                await createWatchChannel(watchAuth, clientId, selectedCalendarId);
+            }
+            catch (watchErr) {
+                console.error('Failed to create watch channel after OAuth:', watchErr);
             }
             // Redirect back to frontend settings page
             const successRedirect = `${env.frontendUrl}/settings?connected=true`;
@@ -160,6 +169,14 @@ export async function authRoutes(server) {
         const success = await updateClientCalendarId(client_id, calendar_id);
         if (!success) {
             return reply.status(500).send({ error: 'Failed to save calendar selection' });
+        }
+        // Set up push notifications on the new calendar (non-fatal)
+        try {
+            const watchAuth = await getAuthenticatedClient(client_id, client.google_oauth_tokens);
+            await createWatchChannel(watchAuth, client_id, calendar_id);
+        }
+        catch (watchErr) {
+            console.error('Failed to create watch channel after calendar change:', watchErr);
         }
         return {
             success: true,
